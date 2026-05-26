@@ -1675,7 +1675,13 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
             component: 'Network',
             clusterName: clusters.join(', '),
             namespace: '-',
+            labels: {},
+            summary: `${alertName} is firing across ${clusters.length} cluster${clusters.length !== 1 ? 's' : ''}.`,
             lastFired: new Date().toLocaleString(),
+            lastFiredTimestamp: new Date(),
+            details: '',
+            source: 'fleet-overview',
+            count: clusters.length,
             description: `${alertName} is firing across ${clusters.length} cluster${clusters.length !== 1 ? 's' : ''}.`,
           };
           setSelectedAlertDetail(mockAlert);
