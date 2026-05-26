@@ -175,6 +175,7 @@ export interface FleetOverviewTabProps {
   onViewAllFiringAlerts?: () => void;
   onViewAllClusters?: () => void;
   onViewContributingAlerts?: (alertNames: string[]) => void;
+  onInvestigateWithAi?: (alertName: string, severity: string, clusters: string[]) => void;
   triggeredFromDate?: string;
   triggeredFromTime?: string;
   triggeredToDate?: string;
@@ -264,6 +265,7 @@ export const FleetOverviewTab: React.FunctionComponent<FleetOverviewTabProps> = 
     onClusterClick,
     onViewAllFiringAlerts,
     onViewAllClusters,
+    onInvestigateWithAi,
     onViewContributingAlerts,
     triggeredFromDate,
     triggeredFromTime,
@@ -1027,6 +1029,7 @@ export const FleetOverviewTab: React.FunctionComponent<FleetOverviewTabProps> = 
             onClusterClick={onClusterClick}
             onViewAllFiringAlerts={onViewAllFiringAlerts}
             onViewAllClusters={onViewAllClusters}
+            onInvestigateWithAi={onInvestigateWithAi}
           />
 
           {/* Alerts Timeline Card - Last */}

@@ -1,6 +1,14 @@
 import * as React from 'react';
 import { Flex, FlexItem, Title, Label, Button, Tooltip, Content } from '@patternfly/react-core';
 import { MagicIcon, ExclamationCircleIcon, ExclamationTriangleIcon, InfoCircleIcon, OptimizeIcon, HelpIcon, ExternalLinkAltIcon } from '@patternfly/react-icons';
+
+const AiTroubleshootIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+    <path d="M7 3l1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2z" />
+    <path d="M4 9l.75 1.5L6.25 11.25l-1.5.75L4 13.5l-.75-1.5L1.75 11.25l1.5-.75L4 9z" />
+    <path d="M25.4 5.1a5.5 5.5 0 00-6.7 1.2l-.2.2a5.5 5.5 0 00-.6 6.5L8.4 22.5a2.8 2.8 0 103.9 3.9l9.5-9.5a5.5 5.5 0 006.5-.6l.2-.2a5.5 5.5 0 001.2-6.7l-3.2 3.2-2.5-.6-.6-2.5 3.2-3.2zM10.3 25.7a1.2 1.2 0 11-1.7-1.7 1.2 1.2 0 011.7 1.7z" />
+  </svg>
+);
 import {
   INSIGHTS_LIST_SIZE,
   INSIGHTS_LINK,
@@ -53,6 +61,7 @@ export interface FleetHealthInsightsViewProps {
   onComponentClick: (name: string) => void;
   onViewAllFiringAlerts?: () => void;
   onViewAllClusters?: () => void;
+  onInvestigateWithAi?: (alertName: string, severity: string, clusters: string[]) => void;
 }
 
 export const FleetHealthInsightsView: React.FC<FleetHealthInsightsViewProps> = (props) => {
@@ -66,6 +75,7 @@ export const FleetHealthInsightsView: React.FC<FleetHealthInsightsViewProps> = (
     onComponentClick,
     onViewAllFiringAlerts,
     onViewAllClusters,
+    onInvestigateWithAi,
   } = props;
 
   const [lightspeedOpen, setLightspeedOpen] = React.useState(false);
@@ -141,13 +151,19 @@ export const FleetHealthInsightsView: React.FC<FleetHealthInsightsViewProps> = (
                     isInline
                     className="pf-v6-u-font-size-sm"
                     style={{ ...INSIGHTS_LINK, padding: 0, verticalAlign: 'baseline' }}
-                    onClick={() =>
-                      openLightspeed({
-                        sourceType: 'alert',
-                        sourceName: rule.name,
-                        aiInsightText: getAlertAiInsight(rule.name),
-                      })
-                    }
+                    icon={<AiTroubleshootIcon size={14} />}
+                    onClick={() => {
+                      const dominantSev = rule.critical > 0 ? 'Critical' : rule.warning > 0 ? 'Warning' : 'Info';
+                      if (onInvestigateWithAi) {
+                        onInvestigateWithAi(rule.name, dominantSev, rule.clusters);
+                      } else {
+                        openLightspeed({
+                          sourceType: 'alert',
+                          sourceName: rule.name,
+                          aiInsightText: getAlertAiInsight(rule.name),
+                        });
+                      }
+                    }}
                   >
                     Investigate with AI
                   </Button>
@@ -206,13 +222,19 @@ export const FleetHealthInsightsView: React.FC<FleetHealthInsightsViewProps> = (
                         isInline
                         className="pf-v6-u-font-size-sm"
                         style={{ ...INSIGHTS_LINK, padding: 0, verticalAlign: 'baseline' }}
-                        onClick={() =>
-                          openLightspeed({
-                            sourceType: 'component',
-                            sourceName: comp.name,
-                            aiInsightText: getComponentAiInsight(comp.name),
-                          })
-                        }
+                        icon={<AiTroubleshootIcon size={14} />}
+                        onClick={() => {
+                          if (onInvestigateWithAi) {
+                            const dominantSev = comp.critical > 0 ? 'Critical' : comp.warning > 0 ? 'Warning' : 'Info';
+                            onInvestigateWithAi(comp.name, dominantSev, comp.clusters);
+                          } else {
+                            openLightspeed({
+                              sourceType: 'component',
+                              sourceName: comp.name,
+                              aiInsightText: getComponentAiInsight(comp.name),
+                            });
+                          }
+                        }}
                       >
                         Investigate with AI
                       </Button>

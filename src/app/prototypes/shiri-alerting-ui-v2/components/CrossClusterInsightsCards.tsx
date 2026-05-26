@@ -16,6 +16,7 @@ interface CrossClusterInsightsCardsProps {
   onClusterClick?: (clusterName: string) => void;
   onViewAllFiringAlerts?: () => void;
   onViewAllClusters?: () => void;
+  onInvestigateWithAi?: (alertName: string, severity: string, clusters: string[]) => void;
 }
 
 export const CrossClusterInsightsCards: React.FC<CrossClusterInsightsCardsProps> = ({
@@ -24,6 +25,7 @@ export const CrossClusterInsightsCards: React.FC<CrossClusterInsightsCardsProps>
   onComponentClick,
   onViewAllFiringAlerts,
   onViewAllClusters,
+  onInvestigateWithAi,
 }) => {
   const [viewMode, setViewMode] = React.useState<ViewMode>('table');
   const [groupByComponent, setGroupByComponent] = React.useState(false);
@@ -78,6 +80,7 @@ export const CrossClusterInsightsCards: React.FC<CrossClusterInsightsCardsProps>
                 onComponentClick={onComponentClick}
                 onViewAllFiringAlerts={onViewAllFiringAlerts}
                 onViewAllClusters={onViewAllClusters}
+                onInvestigateWithAi={onInvestigateWithAi}
               />
             </div>
           )}

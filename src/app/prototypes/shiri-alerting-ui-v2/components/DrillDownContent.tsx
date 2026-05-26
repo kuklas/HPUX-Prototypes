@@ -421,7 +421,7 @@ export const DrillDownContent: React.FunctionComponent<DrillDownContentProps> = 
                             </FlexItem>
                             <FlexItem>
                               <Button variant="secondary" icon={<WrenchIcon />} onClick={() => addToast('Opening troubleshoot...', 'info')}>
-                                Troubleshoot
+                                Troubleshoot with Signal Correlation
                               </Button>
                             </FlexItem>
                             <FlexItem>

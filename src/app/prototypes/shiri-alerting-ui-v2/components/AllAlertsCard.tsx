@@ -178,6 +178,7 @@ interface AllAlertsCardProps {
   onInfoClick?: () => void;
   onClusterFilterChange?: (clusters: string[]) => void;
   onNamespaceFilterChange?: (namespaces: string[]) => void;
+  onTroubleshootWithAi?: (alert: AlertData) => void;
   filterToolbar?: React.ReactNode;
   stateFilter?: string[];
   sourceFilter?: string[];
@@ -214,6 +215,7 @@ const AllAlertsCard: React.FC<AllAlertsCardProps> = ({
   onInfoClick,
   onClusterFilterChange,
   onNamespaceFilterChange,
+  onTroubleshootWithAi,
   filterToolbar,
   stateFilter = [],
   sourceFilter = [],
@@ -1257,6 +1259,7 @@ const AllAlertsCard: React.FC<AllAlertsCardProps> = ({
               singleClusterView={singleClusterView}
               onClusterFilterChange={onClusterFilterChange}
               onNamespaceFilterChange={onNamespaceFilterChange}
+              onTroubleshootWithAi={onTroubleshootWithAi}
             />
                 </StackItem>
               </Stack>
