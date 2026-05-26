@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Advanced Cluster Management User Interface with PatternFly",
   "repository": "https://github.com/kuklas/HPUX-Prototypes.git",
-  "homepage": "https://shirimordechay.github.io/AlertingUI",
+  "homepage": "https://kuklas.github.io/HPUX-Prototypes",
   "license": "MIT",
   "private": true,
   "scripts": {
