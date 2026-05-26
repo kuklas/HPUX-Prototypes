@@ -176,7 +176,6 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
 
 export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert, onBack, onClose }) => {
   const [isKebabOpen, setIsKebabOpen] = React.useState(false);
-  const [isReasoningExpanded, setIsReasoningExpanded] = React.useState(true);
   const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(false);
   const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(false);
   const [rootCauseAcknowledged, setRootCauseAcknowledged] = React.useState(false);
@@ -184,7 +183,9 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
   const [analysisType, setAnalysisType] = React.useState<'smart' | 'fast'>('smart');
   const [isAnalysisDropdownOpen, setIsAnalysisDropdownOpen] = React.useState(false);
   const [isAnalysisRunning, setIsAnalysisRunning] = React.useState(false);
-  const [isLogsExpanded, setIsLogsExpanded] = React.useState(true);
+  const [showEvidence, setShowEvidence] = React.useState(false);
+  const [isReasoningVisible, setIsReasoningVisible] = React.useState(true);
+  const [isLogsVisible, setIsLogsVisible] = React.useState(false);
   const [showAllLogs, setShowAllLogs] = React.useState(false);
   const [selectedPlanIdx, setSelectedPlanIdx] = React.useState(0);
   const [showRawCommands, setShowRawCommands] = React.useState(false);
@@ -354,175 +355,6 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
             </div>
           </StackItem>
 
-          {/* Analysis */}
-          <StackItem>
-            <Title headingLevel="h4" size="md" style={{ marginBottom: '8px' }}>Analysis</Title>
-            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
-              <Content component="small" style={{ fontSize: '13px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>Type:</Content>
-              <div style={{ position: 'relative' }}>
-                <MenuToggle
-                  onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)}
-                  isExpanded={isAnalysisDropdownOpen}
-                  style={{ minWidth: '160px' }}
-                >
-                  {analysisType === 'smart' ? 'Smart' : 'Fast'}
-                </MenuToggle>
-                {isAnalysisDropdownOpen && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    zIndex: 1000,
-                    marginTop: '4px',
-                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                    border: '1px solid var(--pf-t--global--border--color--default)',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-                    minWidth: '280px',
-                    overflow: 'hidden',
-                  }}>
-                    <div
-                      onClick={() => { handleAnalysisTypeChange('smart'); setIsAnalysisDropdownOpen(false); }}
-                      style={{
-                        padding: '10px 16px',
-                        cursor: 'pointer',
-                        backgroundColor: analysisType === 'smart' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                      }}
-                    >
-                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart</Content>
-                      <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                        Deep multi-signal correlation across metrics, logs, and traces. Higher confidence root-cause analysis.
-                      </Content>
-                    </div>
-                    <div style={{ borderTop: '1px solid var(--pf-t--global--border--color--default)' }} />
-                    <div
-                      onClick={() => { handleAnalysisTypeChange('fast'); setIsAnalysisDropdownOpen(false); }}
-                      style={{
-                        padding: '10px 16px',
-                        cursor: 'pointer',
-                        backgroundColor: analysisType === 'fast' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                      }}
-                    >
-                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast</Content>
-                      <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                        Quick single-signal analysis based on primary metric. Faster results for well-known alert patterns.
-                      </Content>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Flex>
-          </StackItem>
-
-          {/* Active Reasoning Chain */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Active reasoning chain"
-              isExpanded={isReasoningExpanded}
-              onToggle={(_e, expanded) => setIsReasoningExpanded(expanded)}
-            >
-              {isAnalysisRunning ? (
-                <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginTop: '12px', padding: '16px' }}>
-                  <span className="pf-v5-c-spinner pf-m-md" role="progressbar" aria-label="Re-running analysis">
-                    <span className="pf-v5-c-spinner__clipper" />
-                    <span className="pf-v5-c-spinner__lead-ball" />
-                    <span className="pf-v5-c-spinner__tail-ball" />
-                  </span>
-                  <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: 0 }}>
-                    Re-running analysis ({analysisType === 'smart' ? 'Smart' : 'Fast'} mode)...
-                  </Content>
-                </Flex>
-              ) : (
-                <div style={{ paddingLeft: '8px', borderLeft: '2px solid var(--pf-t--global--border--color--default)', marginTop: '8px' }}>
-                  <Stack hasGutter>
-                    {reasoningChain.map((step, idx) => (
-                      <StackItem key={idx}>
-                        <Flex alignItems={{ default: 'alignItemsFlexStart' }} gap={{ default: 'gapSm' }}>
-                          <FlexItem style={{ flexShrink: 0 }}>
-                            <div style={{
-                              width: '10px',
-                              height: '10px',
-                              borderRadius: '50%',
-                              backgroundColor: getStatusColor(step.status),
-                              marginTop: '5px',
-                              marginLeft: '-13px',
-                            }} />
-                          </FlexItem>
-                          <FlexItem style={{ flexShrink: 0 }}>
-                            <Label isCompact variant="outline" style={{ fontFamily: 'monospace', fontSize: '11px' }}>
-                              {step.timestamp}
-                            </Label>
-                          </FlexItem>
-                          <FlexItem>
-                            <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: 0 }}>
-                              {step.description}
-                            </Content>
-                          </FlexItem>
-                        </Flex>
-                      </StackItem>
-                    ))}
-                  </Stack>
-                </div>
-              )}
-            </ExpandableSection>
-          </StackItem>
-
-          {/* Analysis Logs */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Analysis logs"
-              isExpanded={isLogsExpanded}
-              onToggle={(_e, expanded) => { setIsLogsExpanded(expanded); if (!expanded) setShowAllLogs(false); }}
-            >
-              {(() => {
-                const logLines = analysisLogs.split('\n');
-                const visibleLines = showAllLogs ? logLines : logLines.slice(0, 3);
-                const hiddenCount = logLines.length - 3;
-                return (
-                  <div style={{
-                    marginTop: '8px',
-                    backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                    border: '1px solid var(--pf-t--global--border--color--default)',
-                    borderRadius: '6px',
-                    padding: '12px',
-                  }}>
-                    <pre style={{
-                      margin: 0,
-                      fontSize: '11px',
-                      lineHeight: '1.6',
-                      fontFamily: 'var(--pf-t--global--font--family--mono)',
-                      color: 'var(--pf-t--global--text--color--subtle)',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                    }}>
-                      {visibleLines.join('\n')}
-                    </pre>
-                    {!showAllLogs && hiddenCount > 0 && (
-                      <Button
-                        variant="link"
-                        isInline
-                        onClick={() => setShowAllLogs(true)}
-                        style={{ marginTop: '8px', fontSize: '12px', paddingLeft: 0 }}
-                      >
-                        Show {hiddenCount} more log lines
-                      </Button>
-                    )}
-                    {showAllLogs && (
-                      <Button
-                        variant="link"
-                        isInline
-                        onClick={() => setShowAllLogs(false)}
-                        style={{ marginTop: '8px', fontSize: '12px', paddingLeft: 0 }}
-                      >
-                        Show less
-                      </Button>
-                    )}
-                  </div>
-                );
-              })()}
-            </ExpandableSection>
-          </StackItem>
-
           {/* Root Cause Analysis - Phase 2: Auto-revealed */}
           {analysisComplete && (
             <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: analysisComplete ? 1 : 0 }}>
@@ -546,7 +378,10 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                       {MOCK_ROOT_CAUSE}
                     </Content>
                     <Flex alignItems={{ default: 'alignItemsCenter' }} justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginTop: '12px' }}>
-                      <Label isCompact variant="outline">Confidence Score: 94%</Label>
+                      <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
+                        <Label isCompact variant="outline">Confidence: 94%</Label>
+                        <Label isCompact variant="outline">{analysisType === 'smart' ? 'Smart' : 'Fast'} analysis</Label>
+                      </Flex>
                       {!rootCauseAcknowledged ? (
                         <Button variant="secondary" size="sm" onClick={handleAcknowledgeRootCause}>
                           Acknowledge &amp; view remediation
@@ -558,6 +393,241 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                         </Flex>
                       )}
                     </Flex>
+                  </div>
+
+                  {/* Supporting evidence: nested under RCA */}
+                  <div style={{ marginTop: '12px' }}>
+                    <Button
+                      variant="link"
+                      isInline
+                      onClick={() => setShowEvidence(!showEvidence)}
+                      aria-expanded={showEvidence}
+                      aria-controls="rca-supporting-evidence"
+                      style={{ fontSize: '13px', paddingLeft: 0 }}
+                      icon={
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showEvidence ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                          <path d="M6 4l4 4-4 4z"/>
+                        </svg>
+                      }
+                    >
+                      {showEvidence ? 'Hide supporting evidence' : 'View supporting evidence'}
+                    </Button>
+
+                    {showEvidence && (
+                      <div
+                        id="rca-supporting-evidence"
+                        role="region"
+                        aria-label="Supporting evidence for root cause analysis"
+                        style={{
+                          marginTop: '10px',
+                          paddingLeft: '12px',
+                          borderLeft: '3px solid var(--pf-t--global--border--color--default)',
+                          backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                          borderRadius: '0 6px 6px 0',
+                          padding: '12px 12px 12px 16px',
+                        }}
+                      >
+                        <Stack hasGutter>
+                          {/* Analysis type selector */}
+                          <StackItem>
+                            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+                              <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>Analysis type:</Content>
+                              <div style={{ position: 'relative' }}>
+                                <MenuToggle
+                                  onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)}
+                                  isExpanded={isAnalysisDropdownOpen}
+                                  style={{ minWidth: '140px' }}
+                                  aria-label="Select analysis type"
+                                >
+                                  {analysisType === 'smart' ? 'Smart' : 'Fast'}
+                                </MenuToggle>
+                                {isAnalysisDropdownOpen && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    zIndex: 1000,
+                                    marginTop: '4px',
+                                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                    border: '1px solid var(--pf-t--global--border--color--default)',
+                                    borderRadius: '6px',
+                                    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                                    minWidth: '260px',
+                                    overflow: 'hidden',
+                                  }}>
+                                    <div
+                                      role="option"
+                                      aria-selected={analysisType === 'smart'}
+                                      onClick={() => { handleAnalysisTypeChange('smart'); setIsAnalysisDropdownOpen(false); }}
+                                      style={{
+                                        padding: '10px 16px',
+                                        cursor: 'pointer',
+                                        backgroundColor: analysisType === 'smart' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
+                                      }}
+                                    >
+                                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart</Content>
+                                      <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                        Deep multi-signal correlation. Higher confidence analysis.
+                                      </Content>
+                                    </div>
+                                    <div style={{ borderTop: '1px solid var(--pf-t--global--border--color--default)' }} />
+                                    <div
+                                      role="option"
+                                      aria-selected={analysisType === 'fast'}
+                                      onClick={() => { handleAnalysisTypeChange('fast'); setIsAnalysisDropdownOpen(false); }}
+                                      style={{
+                                        padding: '10px 16px',
+                                        cursor: 'pointer',
+                                        backgroundColor: analysisType === 'fast' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
+                                      }}
+                                    >
+                                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast</Content>
+                                      <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                        Quick single-signal analysis for known alert patterns.
+                                      </Content>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </Flex>
+                          </StackItem>
+
+                          {/* Active reasoning chain (sub-toggle) */}
+                          <StackItem>
+                            <Button
+                              variant="link"
+                              isInline
+                              onClick={() => setIsReasoningVisible(!isReasoningVisible)}
+                              aria-expanded={isReasoningVisible}
+                              aria-controls="evidence-reasoning-chain"
+                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
+                              icon={
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isReasoningVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                  <path d="M6 4l4 4-4 4z"/>
+                                </svg>
+                              }
+                            >
+                              Active reasoning chain
+                            </Button>
+                            {isReasoningVisible && (
+                              <div id="evidence-reasoning-chain" role="region" aria-label="Active reasoning chain" style={{ marginTop: '8px' }}>
+                                {isAnalysisRunning ? (
+                                  <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '8px 0' }}>
+                                    <span className="pf-v5-c-spinner pf-m-sm" role="progressbar" aria-label="Re-running analysis">
+                                      <span className="pf-v5-c-spinner__clipper" />
+                                      <span className="pf-v5-c-spinner__lead-ball" />
+                                      <span className="pf-v5-c-spinner__tail-ball" />
+                                    </span>
+                                    <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+                                      Re-running analysis...
+                                    </Content>
+                                  </Flex>
+                                ) : (
+                                  <div style={{ paddingLeft: '8px', borderLeft: '2px solid var(--pf-t--global--border--color--default)' }}>
+                                    <Stack hasGutter>
+                                      {reasoningChain.map((step, idx) => (
+                                        <StackItem key={idx}>
+                                          <Flex alignItems={{ default: 'alignItemsFlexStart' }} gap={{ default: 'gapSm' }}>
+                                            <FlexItem style={{ flexShrink: 0 }}>
+                                              <div style={{
+                                                width: '8px',
+                                                height: '8px',
+                                                borderRadius: '50%',
+                                                backgroundColor: getStatusColor(step.status),
+                                                marginTop: '5px',
+                                                marginLeft: '-12px',
+                                              }} />
+                                            </FlexItem>
+                                            <FlexItem style={{ flexShrink: 0 }}>
+                                              <Label isCompact variant="outline" style={{ fontFamily: 'monospace', fontSize: '10px' }}>
+                                                {step.timestamp}
+                                              </Label>
+                                            </FlexItem>
+                                            <FlexItem>
+                                              <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+                                                {step.description}
+                                              </Content>
+                                            </FlexItem>
+                                          </Flex>
+                                        </StackItem>
+                                      ))}
+                                    </Stack>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </StackItem>
+
+                          {/* Raw logs (sub-toggle) */}
+                          <StackItem>
+                            <Button
+                              variant="link"
+                              isInline
+                              onClick={() => { setIsLogsVisible(!isLogsVisible); if (isLogsVisible) setShowAllLogs(false); }}
+                              aria-expanded={isLogsVisible}
+                              aria-controls="evidence-raw-logs"
+                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
+                              icon={
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isLogsVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                  <path d="M6 4l4 4-4 4z"/>
+                                </svg>
+                              }
+                            >
+                              Raw logs
+                            </Button>
+                            {isLogsVisible && (
+                              <div id="evidence-raw-logs" role="region" aria-label="Raw analysis logs" style={{ marginTop: '8px' }}>
+                                {(() => {
+                                  const logLines = analysisLogs.split('\n');
+                                  const visibleLines = showAllLogs ? logLines : logLines.slice(0, 3);
+                                  const hiddenCount = logLines.length - 3;
+                                  return (
+                                    <div style={{
+                                      backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                      border: '1px solid var(--pf-t--global--border--color--default)',
+                                      borderRadius: '4px',
+                                      padding: '10px',
+                                    }}>
+                                      <pre style={{
+                                        margin: 0,
+                                        fontSize: '10px',
+                                        lineHeight: '1.6',
+                                        fontFamily: 'var(--pf-t--global--font--family--mono)',
+                                        color: 'var(--pf-t--global--text--color--subtle)',
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-all',
+                                      }}>
+                                        {visibleLines.join('\n')}
+                                      </pre>
+                                      {!showAllLogs && hiddenCount > 0 && (
+                                        <Button
+                                          variant="link"
+                                          isInline
+                                          onClick={() => setShowAllLogs(true)}
+                                          style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
+                                        >
+                                          Show all logs ({hiddenCount} more lines)
+                                        </Button>
+                                      )}
+                                      {showAllLogs && (
+                                        <Button
+                                          variant="link"
+                                          isInline
+                                          onClick={() => setShowAllLogs(false)}
+                                          style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
+                                        >
+                                          Show less
+                                        </Button>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </StackItem>
+                        </Stack>
+                      </div>
+                    )}
                   </div>
                 </div>
               </ExpandableSection>
