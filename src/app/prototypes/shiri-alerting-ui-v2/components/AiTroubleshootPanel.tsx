@@ -355,6 +355,22 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
             </div>
           </StackItem>
 
+          {/* Analysis in progress indicator */}
+          {!analysisComplete && (
+            <StackItem>
+              <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '12px 0' }}>
+                <span className="pf-v5-c-spinner pf-m-md" role="progressbar" aria-label="Analysis in progress">
+                  <span className="pf-v5-c-spinner__clipper" />
+                  <span className="pf-v5-c-spinner__lead-ball" />
+                  <span className="pf-v5-c-spinner__tail-ball" />
+                </span>
+                <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: 0 }}>
+                  Running {analysisType === 'smart' ? 'smart' : 'fast'} analysis...
+                </Content>
+              </Flex>
+            </StackItem>
+          )}
+
           {/* Root Cause Analysis - Phase 2: Auto-revealed */}
           {analysisComplete && (
             <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: analysisComplete ? 1 : 0 }}>
