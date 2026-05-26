@@ -109,6 +109,7 @@ interface RbacPermission {
 
 interface RemediationPlan {
   name: string;
+  description: string;
   risk: 'Low' | 'Medium' | 'High';
   reversible: boolean;
   requiresRbac: boolean;
@@ -119,6 +120,7 @@ interface RemediationPlan {
 const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
   {
     name: 'Safe log rotation fix',
+    description: 'Automates log rotation config updates and archives stale logs safely without service disruption.',
     risk: 'Low',
     reversible: true,
     requiresRbac: false,
@@ -130,6 +132,7 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
   },
   {
     name: 'Service restart with log cleanup',
+    description: 'Restarts the nginx service after truncating bloated logs and fixing file permissions.',
     risk: 'Medium',
     reversible: true,
     requiresRbac: true,
@@ -150,6 +153,7 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
   },
   {
     name: 'Full partition reclaim',
+    description: 'Aggressive disk reclaim via log purge, LVM resize, and retention policy reconfiguration.',
     risk: 'High',
     reversible: false,
     requiresRbac: true,
@@ -182,6 +186,8 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
   const [isLogsExpanded, setIsLogsExpanded] = React.useState(false);
   const [showAllLogs, setShowAllLogs] = React.useState(false);
   const [selectedPlanIdx, setSelectedPlanIdx] = React.useState(0);
+  const [showRawCommands, setShowRawCommands] = React.useState(false);
+  const [showRbacRoles, setShowRbacRoles] = React.useState(false);
 
   const reasoningChain = analysisType === 'smart' ? MOCK_REASONING_CHAIN_SMART : MOCK_REASONING_CHAIN_FAST;
   const analysisLogs = analysisType === 'smart' ? MOCK_ANALYSIS_LOGS_SMART : MOCK_ANALYSIS_LOGS_FAST;
@@ -535,7 +541,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                   {MOCK_REMEDIATION_PLANS.map((plan, planIdx) => (
                     <StackItem key={planIdx}>
                       <div
-                        onClick={() => setSelectedPlanIdx(planIdx)}
+                        onClick={() => { setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
                         style={{
                           padding: '12px',
                           borderRadius: '6px',
@@ -555,7 +561,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                 type="radio"
                                 name="remediation-plan"
                                 checked={selectedPlanIdx === planIdx}
-                                onChange={() => setSelectedPlanIdx(planIdx)}
+                                onChange={() => { setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
                                 style={{ margin: 0 }}
                               />
                               <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
@@ -586,124 +592,161 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                         </Flex>
                         {/* Show details only for selected plan */}
                         {selectedPlanIdx === planIdx && (
-                          <>
-                        <Flex gap={{ default: 'gapXs' }} style={{ marginTop: '8px', marginLeft: '24px' }} flexWrap={{ default: 'wrap' }}>
-                          <Label isCompact color={plan.risk === 'Low' ? 'green' : plan.risk === 'Medium' ? 'orange' : 'red'}>
-                            Risk: {plan.risk}
-                          </Label>
-                          <Label isCompact color={plan.reversible ? 'blue' : 'orange'}>
-                            {plan.reversible ? 'Reversible' : 'Non-reversible'}
-                          </Label>
-                          {plan.requiresRbac && (
-                            <Label isCompact color="purple">
-                              Requires RBAC
-                            </Label>
-                          )}
-                        </Flex>
-                        {selectedPlanIdx === planIdx && (
-                          <div style={{ marginTop: '12px', marginLeft: '24px' }}>
-                            <Stack hasGutter>
-                              {plan.steps.map((step, stepIdx) => (
-                                <StackItem key={stepIdx}>
-                                  <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} flexWrap={{ default: 'nowrap' }}>
-                                    <FlexItem style={{ flexShrink: 0 }}>
-                                      <div style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        borderRadius: '50%',
-                                        backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                        border: '1px solid var(--pf-t--global--border--color--default)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        fontSize: '10px',
-                                        color: 'var(--pf-t--global--text--color--subtle)',
-                                        fontWeight: 600,
-                                      }}>
-                                        {stepIdx + 1}
-                                      </div>
-                                    </FlexItem>
-                                    <FlexItem>
-                                      <span style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.5' }}>
-                                        {step.parts.map((part, pIdx) =>
-                                          typeof part === 'string' ? (
-                                            <span key={pIdx}>{part}</span>
-                                          ) : (
-                                            <code key={pIdx} style={{
-                                              backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                              border: '1px solid var(--pf-t--global--border--color--default)',
-                                              borderRadius: '3px',
-                                              padding: '1px 4px',
-                                              fontSize: '12px',
-                                              fontFamily: 'var(--pf-t--global--font--family--mono)',
-                                            }}>{part.code}</code>
-                                          )
-                                        )}
-                                      </span>
-                                    </FlexItem>
-                                  </Flex>
-                                </StackItem>
-                              ))}
-                            </Stack>
+                          <div style={{ marginTop: '8px', marginLeft: '24px' }}>
+                            <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: '0 0 10px 0', lineHeight: '1.4' }}>
+                              {plan.description}
+                            </Content>
+                            <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }} style={{ marginBottom: '12px' }}>
+                              <Label isCompact color={plan.risk === 'Low' ? 'green' : plan.risk === 'Medium' ? 'orange' : 'red'}>
+                                Risk: {plan.risk}
+                              </Label>
+                              <Label isCompact color={plan.reversible ? 'blue' : 'orange'}>
+                                {plan.reversible ? 'Reversible' : 'Non-reversible'}
+                              </Label>
+                              {plan.requiresRbac && (
+                                <Label isCompact color="purple">
+                                  Requires RBAC
+                                </Label>
+                              )}
+                            </Flex>
 
-                            {/* RBAC Permissions Info */}
-                            {plan.requiresRbac && plan.rbacPermissions && (
-                              <div style={{
-                                marginTop: '16px',
-                                borderRadius: '6px',
-                                border: '1px solid var(--pf-t--global--border--color--default)',
-                                overflow: 'hidden',
-                              }}>
-                                <div style={{
-                                  padding: '12px 16px',
-                                  backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                                  borderBottom: '1px solid var(--pf-t--global--border--color--default)',
-                                }}>
-                                  <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
-                                    Required RBAC Permissions
-                                  </Content>
-                                </div>
-                                <div style={{ padding: '12px 16px' }}>
-                                  <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginBottom: '12px' }}>
-                                    <Icon size="sm" status="danger"><ExclamationCircleIcon /></Icon>
-                                    <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: 0 }}>
-                                      Review before approving
-                                    </Content>
-                                  </Flex>
-                                  <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', lineHeight: '1.5', fontStyle: 'italic', margin: '0 0 12px 0' }}>
-                                    Review these permissions carefully before approving. This is the exact set of permissions the Lightspeed operator will grant to the agent&apos;s execution sandbox. These permissions are enforced on every iteration, including retries, and cannot be altered by the agent during execution.
-                                  </Content>
-                                  {plan.rbacPermissions.map((perm, permIdx) => (
-                                    <div key={permIdx} style={{ marginTop: permIdx > 0 ? '12px' : 0 }}>
-                                      <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: '0 0 8px 0', display: 'block' }}>
-                                        Namespace Scoped
-                                      </Content>
-                                      <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '6px 12px', fontSize: '12px' }}>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Namespace</span>
-                                        <span><Label isCompact variant="outline">{perm.namespace}</Label></span>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>API Groups</span>
-                                        <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
-                                          {perm.apiGroups.map((g, i) => <Label key={i} isCompact variant="outline">{g}</Label>)}
+                            {/* Progressive disclosure toggles */}
+                            <Stack hasGutter>
+                              {/* Raw commands toggle */}
+                              <StackItem>
+                                <Button
+                                  variant="link"
+                                  isInline
+                                  onClick={(e) => { e.stopPropagation(); setShowRawCommands(!showRawCommands); }}
+                                  style={{ fontSize: '13px', paddingLeft: 0 }}
+                                  icon={
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showRawCommands ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                      <path d="M6 4l4 4-4 4z"/>
+                                    </svg>
+                                  }
+                                >
+                                  {showRawCommands ? 'Hide raw commands' : `Show raw commands (${plan.steps.length} lines)`}
+                                </Button>
+                                {showRawCommands && (
+                                  <div style={{ marginTop: '8px' }}>
+                                    <Stack hasGutter>
+                                      {plan.steps.map((step, stepIdx) => (
+                                        <StackItem key={stepIdx}>
+                                          <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} flexWrap={{ default: 'nowrap' }}>
+                                            <FlexItem style={{ flexShrink: 0 }}>
+                                              <div style={{
+                                                width: '18px',
+                                                height: '18px',
+                                                borderRadius: '50%',
+                                                backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                                border: '1px solid var(--pf-t--global--border--color--default)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '10px',
+                                                color: 'var(--pf-t--global--text--color--subtle)',
+                                                fontWeight: 600,
+                                              }}>
+                                                {stepIdx + 1}
+                                              </div>
+                                            </FlexItem>
+                                            <FlexItem>
+                                              <span style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.5' }}>
+                                                {step.parts.map((part, pIdx) =>
+                                                  typeof part === 'string' ? (
+                                                    <span key={pIdx}>{part}</span>
+                                                  ) : (
+                                                    <code key={pIdx} style={{
+                                                      backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                                                      border: '1px solid var(--pf-t--global--border--color--default)',
+                                                      borderRadius: '3px',
+                                                      padding: '1px 4px',
+                                                      fontSize: '12px',
+                                                      fontFamily: 'var(--pf-t--global--font--family--mono)',
+                                                    }}>{part.code}</code>
+                                                  )
+                                                )}
+                                              </span>
+                                            </FlexItem>
+                                          </Flex>
+                                        </StackItem>
+                                      ))}
+                                    </Stack>
+                                  </div>
+                                )}
+                              </StackItem>
+
+                              {/* RBAC roles toggle */}
+                              {plan.requiresRbac && plan.rbacPermissions && (
+                                <StackItem>
+                                  <Button
+                                    variant="link"
+                                    isInline
+                                    onClick={(e) => { e.stopPropagation(); setShowRbacRoles(!showRbacRoles); }}
+                                    style={{ fontSize: '13px', paddingLeft: 0 }}
+                                    icon={
+                                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showRbacRoles ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                        <path d="M6 4l4 4-4 4z"/>
+                                      </svg>
+                                    }
+                                  >
+                                    {showRbacRoles ? 'Hide RBAC roles' : `View ${plan.rbacPermissions.length} required RBAC role${plan.rbacPermissions.length !== 1 ? 's' : ''}`}
+                                  </Button>
+                                  {showRbacRoles && (
+                                    <div style={{
+                                      marginTop: '8px',
+                                      borderRadius: '6px',
+                                      border: '1px solid var(--pf-t--global--border--color--default)',
+                                      overflow: 'hidden',
+                                    }}>
+                                      <div style={{
+                                        padding: '10px 12px',
+                                        backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                                        borderBottom: '1px solid var(--pf-t--global--border--color--default)',
+                                      }}>
+                                        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+                                          <Icon size="sm" status="danger"><ExclamationCircleIcon /></Icon>
+                                          <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: 0 }}>
+                                            Review before approving
+                                          </Content>
                                         </Flex>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Resources</span>
-                                        <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
-                                          {perm.resources.map((r, i) => <Label key={i} isCompact color="blue">{r}</Label>)}
-                                        </Flex>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Verbs</span>
-                                        <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
-                                          {perm.verbs.map((v, i) => <Label key={i} isCompact color="green">{v}</Label>)}
-                                        </Flex>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Justification</span>
-                                        <span style={{ color: 'var(--pf-t--global--text--color--subtle)' }}>{perm.justification}</span>
+                                        <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '11px', lineHeight: '1.4', fontStyle: 'italic', margin: '6px 0 0 0' }}>
+                                          These permissions are granted to the agent&apos;s execution sandbox and cannot be altered during execution.
+                                        </Content>
+                                      </div>
+                                      <div style={{ padding: '10px 12px' }}>
+                                        {plan.rbacPermissions.map((perm, permIdx) => (
+                                          <div key={permIdx} style={{ marginTop: permIdx > 0 ? '10px' : 0 }}>
+                                            <Content component="small" style={{ fontWeight: 600, fontSize: '11px', margin: '0 0 6px 0', display: 'block' }}>
+                                              Namespace Scoped
+                                            </Content>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '4px 10px', fontSize: '12px' }}>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Namespace</span>
+                                              <span><Label isCompact variant="outline">{perm.namespace}</Label></span>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>API Groups</span>
+                                              <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
+                                                {perm.apiGroups.map((g, i) => <Label key={i} isCompact variant="outline">{g}</Label>)}
+                                              </Flex>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Resources</span>
+                                              <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
+                                                {perm.resources.map((r, i) => <Label key={i} isCompact color="blue">{r}</Label>)}
+                                              </Flex>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Verbs</span>
+                                              <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
+                                                {perm.verbs.map((v, i) => <Label key={i} isCompact color="green">{v}</Label>)}
+                                              </Flex>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Justification</span>
+                                              <span style={{ color: 'var(--pf-t--global--text--color--subtle)' }}>{perm.justification}</span>
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
                                     </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
+                                  )}
+                                </StackItem>
+                              )}
+                            </Stack>
                           </div>
-                        )}
-                          </>
                         )}
                       </div>
                     </StackItem>
