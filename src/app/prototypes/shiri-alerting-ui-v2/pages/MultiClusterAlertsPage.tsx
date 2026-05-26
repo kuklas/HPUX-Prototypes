@@ -529,6 +529,7 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
   const [isDrawerExpanded, setIsDrawerExpanded] = React.useState(false);
   const [selectedAlertDetail, setSelectedAlertDetail] = React.useState<AlertData | null>(null);
   const [alertDetailDrawerTab, setAlertDetailDrawerTab] = React.useState<number>(0);
+  const [openDrawerWithAiTroubleshoot, setOpenDrawerWithAiTroubleshoot] = React.useState(false);
   
   // Alert Rule Drawer state
   const [isAlertRuleDrawerOpen, setIsAlertRuleDrawerOpen] = React.useState(false);
@@ -1664,6 +1665,23 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
         triggeredToDate={triggeredToDate}
         triggeredToTime={triggeredToTime}
         timeFilteredClusters={timeFilteredClusters}
+        onInvestigateWithAi={(alertName, severity, clusters) => {
+          const mockAlert: AlertData = {
+            id: `fleet-${alertName}-${severity}`,
+            alertName,
+            severity: severity as AlertData['severity'],
+            status: 'firing',
+            group: 'Cluster',
+            component: 'Networking',
+            clusterName: clusters.join(', '),
+            namespace: '-',
+            lastFired: new Date().toLocaleString(),
+            description: `${alertName} is firing across ${clusters.length} cluster${clusters.length !== 1 ? 's' : ''}.`,
+          };
+          setSelectedAlertDetail(mockAlert);
+          setOpenDrawerWithAiTroubleshoot(true);
+          setIsDrawerExpanded(true);
+        }}
       />
       )}
 
@@ -1747,7 +1765,13 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
           onAlertClick={(alert, initialTab) => {
             setSelectedAlertDetail(alert);
             setIsDrawerExpanded(true);
+            setOpenDrawerWithAiTroubleshoot(false);
             setAlertDetailDrawerTab(initialTab !== undefined ? initialTab : 0);
+          }}
+          onTroubleshootWithAi={(alert) => {
+            setSelectedAlertDetail(alert);
+            setOpenDrawerWithAiTroubleshoot(true);
+            setIsDrawerExpanded(true);
           }}
           setMainPageTab={setMainPageTab}
           setManagementSubTab={setManagementSubTab}
@@ -2055,8 +2079,10 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
         onClose={() => {
           setIsDrawerExpanded(false);
           setSelectedAlertDetail(null);
+          setOpenDrawerWithAiTroubleshoot(false);
         }}
         onTabChange={setAlertDetailDrawerTab}
+        initialShowAiTroubleshoot={openDrawerWithAiTroubleshoot}
       />
 
       {/* Alert Rule Details Drawer */}
