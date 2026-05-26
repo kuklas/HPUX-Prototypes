@@ -562,7 +562,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                           <Label isCompact color={plan.risk === 'Low' ? 'green' : plan.risk === 'Medium' ? 'orange' : 'red'}>
                             Risk: {plan.risk}
                           </Label>
-                          <Label isCompact color={plan.reversible ? 'blue' : 'gold'}>
+                          <Label isCompact color={plan.reversible ? 'blue' : 'orange'}>
                             {plan.reversible ? 'Reversible' : 'Non-reversible'}
                           </Label>
                           {plan.requiresRbac && (

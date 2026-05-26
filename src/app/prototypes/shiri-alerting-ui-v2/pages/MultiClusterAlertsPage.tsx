@@ -1672,7 +1672,7 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
             severity: severity as AlertData['severity'],
             status: 'firing',
             group: 'Cluster',
-            component: 'Networking',
+            component: 'Network',
             clusterName: clusters.join(', '),
             namespace: '-',
             lastFired: new Date().toLocaleString(),
