@@ -177,20 +177,31 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
 export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert, onBack, onClose }) => {
   const [isKebabOpen, setIsKebabOpen] = React.useState(false);
   const [isReasoningExpanded, setIsReasoningExpanded] = React.useState(true);
-  const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(true);
-  const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(true);
+  const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(false);
+  const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(false);
+  const [rootCauseAcknowledged, setRootCauseAcknowledged] = React.useState(false);
   const [testState, setTestState] = React.useState<'idle' | 'testing' | 'tested'>('idle');
   const [analysisType, setAnalysisType] = React.useState<'smart' | 'fast'>('smart');
   const [isAnalysisDropdownOpen, setIsAnalysisDropdownOpen] = React.useState(false);
   const [isAnalysisRunning, setIsAnalysisRunning] = React.useState(false);
-  const [isLogsExpanded, setIsLogsExpanded] = React.useState(false);
+  const [isLogsExpanded, setIsLogsExpanded] = React.useState(true);
   const [showAllLogs, setShowAllLogs] = React.useState(false);
   const [selectedPlanIdx, setSelectedPlanIdx] = React.useState(0);
   const [showRawCommands, setShowRawCommands] = React.useState(false);
   const [showRbacRoles, setShowRbacRoles] = React.useState(false);
+  const [analysisComplete, setAnalysisComplete] = React.useState(false);
 
   const reasoningChain = analysisType === 'smart' ? MOCK_REASONING_CHAIN_SMART : MOCK_REASONING_CHAIN_FAST;
   const analysisLogs = analysisType === 'smart' ? MOCK_ANALYSIS_LOGS_SMART : MOCK_ANALYSIS_LOGS_FAST;
+
+  // Phase 2: Auto-reveal root cause after reasoning chain "completes"
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnalysisComplete(true);
+      setIsRootCauseExpanded(true);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const recommendedPlanIdx = React.useMemo(() => {
     const riskWeight = { Low: 1, Medium: 2, High: 3 };
@@ -208,7 +219,20 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
     if (type === analysisType) return;
     setAnalysisType(type);
     setIsAnalysisRunning(true);
-    setTimeout(() => setIsAnalysisRunning(false), 1500);
+    setAnalysisComplete(false);
+    setIsRootCauseExpanded(false);
+    setRootCauseAcknowledged(false);
+    setIsRemediationExpanded(false);
+    setTimeout(() => {
+      setIsAnalysisRunning(false);
+      setAnalysisComplete(true);
+      setIsRootCauseExpanded(true);
+    }, 1500);
+  };
+
+  const handleAcknowledgeRootCause = () => {
+    setRootCauseAcknowledged(true);
+    setIsRemediationExpanded(true);
   };
   const [isApplyDropdownOpen, setIsApplyDropdownOpen] = React.useState(false);
 
@@ -242,10 +266,10 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
 
   const getStatusColor = (status: ReasoningStep['status']) => {
     switch (status) {
-      case 'success': return 'var(--pf-t--global--color--status--success--default)';
-      case 'warning': return 'var(--pf-t--global--color--status--warning--default)';
-      case 'info': return 'var(--pf-t--global--color--status--info--default)';
-      case 'active': return 'var(--pf-t--global--color--status--info--default)';
+      case 'success': return 'var(--pf-t--global--text--color--subtle)';
+      case 'warning': return 'var(--pf-t--global--text--color--regular)';
+      case 'info': return 'var(--pf-t--global--text--color--subtle)';
+      case 'active': return 'var(--pf-t--global--text--color--regular)';
       default: return 'var(--pf-t--global--text--color--subtle)';
     }
   };
@@ -499,42 +523,55 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
             </ExpandableSection>
           </StackItem>
 
-          {/* Root Cause Analysis */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Root Cause Analysis"
-              isExpanded={isRootCauseExpanded}
-              onToggle={(_e, expanded) => setIsRootCauseExpanded(expanded)}
-            >
-              <div style={{ marginTop: '8px' }}>
-                <div style={{
-                  backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  border: '1px solid var(--pf-t--global--border--color--default)',
-                  position: 'relative',
-                }}>
-                  <Button variant="plain" aria-label="Copy" style={{ position: 'absolute', top: '8px', right: '8px', padding: '4px' }}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13 1H5a1 1 0 00-1 1v2h2V3h7v8h-1v2h2a1 1 0 001-1V2a1 1 0 00-1-1z"/><path d="M10 5H3a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V6a1 1 0 00-1-1zM9 13H4V7h5v6z"/></svg>
-                  </Button>
-                  <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.6', paddingRight: '24px' }}>
-                    {MOCK_ROOT_CAUSE}
-                  </Content>
-                  <div style={{ marginTop: '12px' }}>
-                    <Label isCompact color="blue">Confidence Score: 94%</Label>
+          {/* Root Cause Analysis - Phase 2: Auto-revealed */}
+          {analysisComplete && (
+            <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: analysisComplete ? 1 : 0 }}>
+              <ExpandableSection
+                toggleText="Root Cause Analysis"
+                isExpanded={isRootCauseExpanded}
+                onToggle={(_e, expanded) => setIsRootCauseExpanded(expanded)}
+              >
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{
+                    backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    border: '1px solid var(--pf-t--global--border--color--default)',
+                    position: 'relative',
+                  }}>
+                    <Button variant="plain" aria-label="Copy" style={{ position: 'absolute', top: '8px', right: '8px', padding: '4px' }}>
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13 1H5a1 1 0 00-1 1v2h2V3h7v8h-1v2h2a1 1 0 001-1V2a1 1 0 00-1-1z"/><path d="M10 5H3a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V6a1 1 0 00-1-1zM9 13H4V7h5v6z"/></svg>
+                    </Button>
+                    <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.6', paddingRight: '24px' }}>
+                      {MOCK_ROOT_CAUSE}
+                    </Content>
+                    <Flex alignItems={{ default: 'alignItemsCenter' }} justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginTop: '12px' }}>
+                      <Label isCompact variant="outline">Confidence Score: 94%</Label>
+                      {!rootCauseAcknowledged ? (
+                        <Button variant="secondary" size="sm" onClick={handleAcknowledgeRootCause}>
+                          Acknowledge &amp; view remediation
+                        </Button>
+                      ) : (
+                        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapXs' }}>
+                          <Icon size="sm" status="success"><CheckCircleIcon /></Icon>
+                          <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--color--status--success--default)' }}>Acknowledged</Content>
+                        </Flex>
+                      )}
+                    </Flex>
                   </div>
                 </div>
-              </div>
-            </ExpandableSection>
-          </StackItem>
+              </ExpandableSection>
+            </StackItem>
+          )}
 
-          {/* Suggested Remediation Plans */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Suggested Remediation Plans"
-              isExpanded={isRemediationExpanded}
-              onToggle={(_e, expanded) => setIsRemediationExpanded(expanded)}
-            >
+          {/* Suggested Remediation Plans - Phase 3: User-triggered */}
+          {rootCauseAcknowledged && (
+            <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: rootCauseAcknowledged ? 1 : 0 }}>
+              <ExpandableSection
+                toggleText="Suggested Remediation Plans"
+                isExpanded={isRemediationExpanded}
+                onToggle={(_e, expanded) => setIsRemediationExpanded(expanded)}
+              >
               <div style={{ marginTop: '8px' }}>
                 {/* Plan selector */}
                 <Stack hasGutter>
@@ -597,14 +634,14 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                               {plan.description}
                             </Content>
                             <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }} style={{ marginBottom: '12px' }}>
-                              <Label isCompact color={plan.risk === 'Low' ? 'green' : plan.risk === 'Medium' ? 'orange' : 'red'}>
+                              <Label isCompact variant="outline">
                                 Risk: {plan.risk}
                               </Label>
-                              <Label isCompact color={plan.reversible ? 'blue' : 'orange'}>
+                              <Label isCompact variant="outline">
                                 {plan.reversible ? 'Reversible' : 'Non-reversible'}
                               </Label>
                               {plan.requiresRbac && (
-                                <Label isCompact color="purple">
+                                <Label isCompact variant="outline">
                                   Requires RBAC
                                 </Label>
                               )}
@@ -755,6 +792,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
               </div>
             </ExpandableSection>
           </StackItem>
+          )}
         </Stack>
       </div>
 
@@ -765,17 +803,22 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
         flexShrink: 0,
         backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
       }}>
-        {testState === 'idle' && (
+        {!rootCauseAcknowledged && (
+          <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+            {analysisComplete ? 'Acknowledge the root cause analysis to proceed with remediation.' : 'Analysis in progress...'}
+          </Content>
+        )}
+        {rootCauseAcknowledged && testState === 'idle' && (
           <Button variant="primary" onClick={handleTestRemediation}>
             Test Before Applying
           </Button>
         )}
-        {testState === 'testing' && (
+        {rootCauseAcknowledged && testState === 'testing' && (
           <Button variant="primary" isLoading isDisabled>
             Testing remediation plan
           </Button>
         )}
-        {testState === 'tested' && (
+        {rootCauseAcknowledged && testState === 'tested' && (
           <Stack hasGutter>
             <StackItem>
               <div style={{
