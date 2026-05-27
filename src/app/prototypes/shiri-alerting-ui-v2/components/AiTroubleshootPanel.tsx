@@ -109,6 +109,7 @@ interface RbacPermission {
 
 interface RemediationPlan {
   name: string;
+  description: string;
   risk: 'Low' | 'Medium' | 'High';
   reversible: boolean;
   requiresRbac: boolean;
@@ -119,6 +120,7 @@ interface RemediationPlan {
 const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
   {
     name: 'Safe log rotation fix',
+    description: 'Automates log rotation config updates and archives stale logs safely without service disruption.',
     risk: 'Low',
     reversible: true,
     requiresRbac: false,
@@ -130,6 +132,7 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
   },
   {
     name: 'Service restart with log cleanup',
+    description: 'Restarts the nginx service after truncating bloated logs and fixing file permissions.',
     risk: 'Medium',
     reversible: true,
     requiresRbac: true,
@@ -150,6 +153,7 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
   },
   {
     name: 'Full partition reclaim',
+    description: 'Aggressive disk reclaim via log purge, LVM resize, and retention policy reconfiguration.',
     risk: 'High',
     reversible: false,
     requiresRbac: true,
@@ -172,18 +176,33 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
 
 export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert, onBack, onClose }) => {
   const [isKebabOpen, setIsKebabOpen] = React.useState(false);
-  const [isReasoningExpanded, setIsReasoningExpanded] = React.useState(true);
-  const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(true);
-  const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(true);
+  const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(false);
+  const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(false);
+  const [rootCauseAcknowledged, setRootCauseAcknowledged] = React.useState(false);
   const [testState, setTestState] = React.useState<'idle' | 'testing' | 'tested'>('idle');
   const [analysisType, setAnalysisType] = React.useState<'smart' | 'fast'>('smart');
   const [isAnalysisDropdownOpen, setIsAnalysisDropdownOpen] = React.useState(false);
   const [isAnalysisRunning, setIsAnalysisRunning] = React.useState(false);
-  const [isLogsExpanded, setIsLogsExpanded] = React.useState(false);
+  const [showEvidence, setShowEvidence] = React.useState(false);
+  const [isReasoningVisible, setIsReasoningVisible] = React.useState(true);
+  const [isLogsVisible, setIsLogsVisible] = React.useState(false);
+  const [showAllLogs, setShowAllLogs] = React.useState(false);
   const [selectedPlanIdx, setSelectedPlanIdx] = React.useState(0);
+  const [showRawCommands, setShowRawCommands] = React.useState(false);
+  const [showRbacRoles, setShowRbacRoles] = React.useState(false);
+  const [analysisComplete, setAnalysisComplete] = React.useState(false);
 
   const reasoningChain = analysisType === 'smart' ? MOCK_REASONING_CHAIN_SMART : MOCK_REASONING_CHAIN_FAST;
   const analysisLogs = analysisType === 'smart' ? MOCK_ANALYSIS_LOGS_SMART : MOCK_ANALYSIS_LOGS_FAST;
+
+  // Phase 2: Auto-reveal root cause after reasoning chain "completes"
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnalysisComplete(true);
+      setIsRootCauseExpanded(true);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const recommendedPlanIdx = React.useMemo(() => {
     const riskWeight = { Low: 1, Medium: 2, High: 3 };
@@ -201,7 +220,20 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
     if (type === analysisType) return;
     setAnalysisType(type);
     setIsAnalysisRunning(true);
-    setTimeout(() => setIsAnalysisRunning(false), 1500);
+    setAnalysisComplete(false);
+    setIsRootCauseExpanded(false);
+    setRootCauseAcknowledged(false);
+    setIsRemediationExpanded(false);
+    setTimeout(() => {
+      setIsAnalysisRunning(false);
+      setAnalysisComplete(true);
+      setIsRootCauseExpanded(true);
+    }, 1500);
+  };
+
+  const handleAcknowledgeRootCause = () => {
+    setRootCauseAcknowledged(true);
+    setIsRemediationExpanded(true);
   };
   const [isApplyDropdownOpen, setIsApplyDropdownOpen] = React.useState(false);
 
@@ -235,10 +267,10 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
 
   const getStatusColor = (status: ReasoningStep['status']) => {
     switch (status) {
-      case 'success': return 'var(--pf-t--global--color--status--success--default)';
-      case 'warning': return 'var(--pf-t--global--color--status--warning--default)';
-      case 'info': return 'var(--pf-t--global--color--status--info--default)';
-      case 'active': return 'var(--pf-t--global--color--status--info--default)';
+      case 'success': return 'var(--pf-t--global--text--color--subtle)';
+      case 'warning': return 'var(--pf-t--global--text--color--regular)';
+      case 'info': return 'var(--pf-t--global--text--color--subtle)';
+      case 'active': return 'var(--pf-t--global--text--color--regular)';
       default: return 'var(--pf-t--global--text--color--subtle)';
     }
   };
@@ -323,193 +355,316 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
             </div>
           </StackItem>
 
-          {/* Analysis */}
-          <StackItem>
-            <Title headingLevel="h4" size="md" style={{ marginBottom: '8px' }}>Analysis</Title>
-            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
-              <Content component="small" style={{ fontSize: '13px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>Type:</Content>
-              <div style={{ position: 'relative' }}>
-                <MenuToggle
-                  onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)}
-                  isExpanded={isAnalysisDropdownOpen}
-                  style={{ minWidth: '160px' }}
-                >
-                  {analysisType === 'smart' ? 'Smart' : 'Fast'}
-                </MenuToggle>
-                {isAnalysisDropdownOpen && (
+          {/* Analysis in progress indicator */}
+          {!analysisComplete && (
+            <StackItem>
+              <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '12px 0' }}>
+                <span className="pf-v5-c-spinner pf-m-md" role="progressbar" aria-label="Analysis in progress">
+                  <span className="pf-v5-c-spinner__clipper" />
+                  <span className="pf-v5-c-spinner__lead-ball" />
+                  <span className="pf-v5-c-spinner__tail-ball" />
+                </span>
+                <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: 0 }}>
+                  Running {analysisType === 'smart' ? 'smart' : 'fast'} analysis...
+                </Content>
+              </Flex>
+            </StackItem>
+          )}
+
+          {/* Root Cause Analysis - Phase 2: Auto-revealed */}
+          {analysisComplete && (
+            <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: analysisComplete ? 1 : 0 }}>
+              <ExpandableSection
+                toggleText="Root Cause Analysis"
+                isExpanded={isRootCauseExpanded}
+                onToggle={(_e, expanded) => setIsRootCauseExpanded(expanded)}
+              >
+                <div style={{ marginTop: '8px' }}>
                   <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    zIndex: 1000,
-                    marginTop: '4px',
-                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                    backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                    borderRadius: '8px',
+                    padding: '16px',
                     border: '1px solid var(--pf-t--global--border--color--default)',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-                    minWidth: '280px',
-                    overflow: 'hidden',
+                    position: 'relative',
                   }}>
-                    <div
-                      onClick={() => { handleAnalysisTypeChange('smart'); setIsAnalysisDropdownOpen(false); }}
-                      style={{
-                        padding: '10px 16px',
-                        cursor: 'pointer',
-                        backgroundColor: analysisType === 'smart' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                      }}
-                    >
-                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart</Content>
-                      <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                        Deep multi-signal correlation across metrics, logs, and traces. Higher confidence root-cause analysis.
-                      </Content>
-                    </div>
-                    <div style={{ borderTop: '1px solid var(--pf-t--global--border--color--default)' }} />
-                    <div
-                      onClick={() => { handleAnalysisTypeChange('fast'); setIsAnalysisDropdownOpen(false); }}
-                      style={{
-                        padding: '10px 16px',
-                        cursor: 'pointer',
-                        backgroundColor: analysisType === 'fast' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                      }}
-                    >
-                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast</Content>
-                      <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                        Quick single-signal analysis based on primary metric. Faster results for well-known alert patterns.
-                      </Content>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Flex>
-          </StackItem>
-
-          {/* Active Reasoning Chain */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Active reasoning chain"
-              isExpanded={isReasoningExpanded}
-              onToggle={(_e, expanded) => setIsReasoningExpanded(expanded)}
-            >
-              {isAnalysisRunning ? (
-                <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginTop: '12px', padding: '16px' }}>
-                  <span className="pf-v5-c-spinner pf-m-md" role="progressbar" aria-label="Re-running analysis">
-                    <span className="pf-v5-c-spinner__clipper" />
-                    <span className="pf-v5-c-spinner__lead-ball" />
-                    <span className="pf-v5-c-spinner__tail-ball" />
-                  </span>
-                  <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: 0 }}>
-                    Re-running analysis ({analysisType === 'smart' ? 'Smart' : 'Fast'} mode)...
-                  </Content>
-                </Flex>
-              ) : (
-                <div style={{ paddingLeft: '8px', borderLeft: '2px solid var(--pf-t--global--border--color--default)', marginTop: '8px' }}>
-                  <Stack hasGutter>
-                    {reasoningChain.map((step, idx) => (
-                      <StackItem key={idx}>
-                        <Flex alignItems={{ default: 'alignItemsFlexStart' }} gap={{ default: 'gapSm' }}>
-                          <FlexItem style={{ flexShrink: 0 }}>
-                            <div style={{
-                              width: '10px',
-                              height: '10px',
-                              borderRadius: '50%',
-                              backgroundColor: getStatusColor(step.status),
-                              marginTop: '5px',
-                              marginLeft: '-13px',
-                            }} />
-                          </FlexItem>
-                          <FlexItem style={{ flexShrink: 0 }}>
-                            <Label isCompact variant="outline" style={{ fontFamily: 'monospace', fontSize: '11px' }}>
-                              {step.timestamp}
-                            </Label>
-                          </FlexItem>
-                          <FlexItem>
-                            <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: 0 }}>
-                              {step.description}
-                            </Content>
-                          </FlexItem>
+                    <Button variant="plain" aria-label="Copy" style={{ position: 'absolute', top: '8px', right: '8px', padding: '4px' }}>
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13 1H5a1 1 0 00-1 1v2h2V3h7v8h-1v2h2a1 1 0 001-1V2a1 1 0 00-1-1z"/><path d="M10 5H3a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V6a1 1 0 00-1-1zM9 13H4V7h5v6z"/></svg>
+                    </Button>
+                    <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.6', paddingRight: '24px' }}>
+                      {MOCK_ROOT_CAUSE}
+                    </Content>
+                    <Flex alignItems={{ default: 'alignItemsCenter' }} justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginTop: '12px' }}>
+                      <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
+                        <Label isCompact variant="outline">Confidence: 94%</Label>
+                        <Label isCompact variant="outline">{analysisType === 'smart' ? 'Smart' : 'Fast'} analysis</Label>
+                      </Flex>
+                      {!rootCauseAcknowledged ? (
+                        <Button variant="secondary" size="sm" onClick={handleAcknowledgeRootCause}>
+                          Acknowledge &amp; view remediation
+                        </Button>
+                      ) : (
+                        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapXs' }}>
+                          <Icon size="sm" status="success"><CheckCircleIcon /></Icon>
+                          <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--color--status--success--default)' }}>Acknowledged</Content>
                         </Flex>
-                      </StackItem>
-                    ))}
-                  </Stack>
-                </div>
-              )}
-            </ExpandableSection>
-          </StackItem>
+                      )}
+                    </Flex>
+                  </div>
 
-          {/* Analysis Logs */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Analysis logs"
-              isExpanded={isLogsExpanded}
-              onToggle={(_e, expanded) => setIsLogsExpanded(expanded)}
-            >
-              <div style={{
-                marginTop: '8px',
-                maxHeight: '200px',
-                overflow: 'auto',
-                backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                border: '1px solid var(--pf-t--global--border--color--default)',
-                borderRadius: '6px',
-                padding: '12px',
-              }}>
-                <pre style={{
-                  margin: 0,
-                  fontSize: '11px',
-                  lineHeight: '1.6',
-                  fontFamily: 'var(--pf-t--global--font--family--mono)',
-                  color: 'var(--pf-t--global--text--color--subtle)',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                }}>
-                  {analysisLogs}
-                </pre>
-              </div>
-            </ExpandableSection>
-          </StackItem>
-
-          {/* Root Cause Analysis */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Root Cause Analysis"
-              isExpanded={isRootCauseExpanded}
-              onToggle={(_e, expanded) => setIsRootCauseExpanded(expanded)}
-            >
-              <div style={{ marginTop: '8px' }}>
-                <div style={{
-                  backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  border: '1px solid var(--pf-t--global--border--color--default)',
-                  position: 'relative',
-                }}>
-                  <Button variant="plain" aria-label="Copy" style={{ position: 'absolute', top: '8px', right: '8px', padding: '4px' }}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13 1H5a1 1 0 00-1 1v2h2V3h7v8h-1v2h2a1 1 0 001-1V2a1 1 0 00-1-1z"/><path d="M10 5H3a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V6a1 1 0 00-1-1zM9 13H4V7h5v6z"/></svg>
-                  </Button>
-                  <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.6', paddingRight: '24px' }}>
-                    {MOCK_ROOT_CAUSE}
-                  </Content>
+                  {/* Supporting evidence: nested under RCA */}
                   <div style={{ marginTop: '12px' }}>
-                    <Label isCompact color="blue">Confidence Score: 94%</Label>
+                    <Button
+                      variant="link"
+                      isInline
+                      onClick={() => setShowEvidence(!showEvidence)}
+                      aria-expanded={showEvidence}
+                      aria-controls="rca-supporting-evidence"
+                      style={{ fontSize: '13px', paddingLeft: 0 }}
+                      icon={
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showEvidence ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                          <path d="M6 4l4 4-4 4z"/>
+                        </svg>
+                      }
+                    >
+                      {showEvidence ? 'Hide supporting evidence' : 'View supporting evidence'}
+                    </Button>
+
+                    {showEvidence && (
+                      <div
+                        id="rca-supporting-evidence"
+                        role="region"
+                        aria-label="Supporting evidence for root cause analysis"
+                        style={{
+                          marginTop: '10px',
+                          paddingLeft: '12px',
+                          borderLeft: '3px solid var(--pf-t--global--border--color--default)',
+                          backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                          borderRadius: '0 6px 6px 0',
+                          padding: '12px 12px 12px 16px',
+                        }}
+                      >
+                        <Stack hasGutter>
+                          {/* Analysis type selector */}
+                          <StackItem>
+                            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+                              <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>Analysis type:</Content>
+                              <div style={{ position: 'relative' }}>
+                                <MenuToggle
+                                  onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)}
+                                  isExpanded={isAnalysisDropdownOpen}
+                                  style={{ minWidth: '140px' }}
+                                  aria-label="Select analysis type"
+                                >
+                                  {analysisType === 'smart' ? 'Smart' : 'Fast'}
+                                </MenuToggle>
+                                {isAnalysisDropdownOpen && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    zIndex: 1000,
+                                    marginTop: '4px',
+                                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                    border: '1px solid var(--pf-t--global--border--color--default)',
+                                    borderRadius: '6px',
+                                    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                                    minWidth: '260px',
+                                    overflow: 'hidden',
+                                  }}>
+                                    <div
+                                      role="option"
+                                      aria-selected={analysisType === 'smart'}
+                                      onClick={() => { handleAnalysisTypeChange('smart'); setIsAnalysisDropdownOpen(false); }}
+                                      style={{
+                                        padding: '10px 16px',
+                                        cursor: 'pointer',
+                                        backgroundColor: analysisType === 'smart' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
+                                      }}
+                                    >
+                                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart</Content>
+                                      <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                        Deep multi-signal correlation. Higher confidence analysis.
+                                      </Content>
+                                    </div>
+                                    <div style={{ borderTop: '1px solid var(--pf-t--global--border--color--default)' }} />
+                                    <div
+                                      role="option"
+                                      aria-selected={analysisType === 'fast'}
+                                      onClick={() => { handleAnalysisTypeChange('fast'); setIsAnalysisDropdownOpen(false); }}
+                                      style={{
+                                        padding: '10px 16px',
+                                        cursor: 'pointer',
+                                        backgroundColor: analysisType === 'fast' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
+                                      }}
+                                    >
+                                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast</Content>
+                                      <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                        Quick single-signal analysis for known alert patterns.
+                                      </Content>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </Flex>
+                          </StackItem>
+
+                          {/* Active reasoning chain (sub-toggle) */}
+                          <StackItem>
+                            <Button
+                              variant="link"
+                              isInline
+                              onClick={() => setIsReasoningVisible(!isReasoningVisible)}
+                              aria-expanded={isReasoningVisible}
+                              aria-controls="evidence-reasoning-chain"
+                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
+                              icon={
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isReasoningVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                  <path d="M6 4l4 4-4 4z"/>
+                                </svg>
+                              }
+                            >
+                              Active reasoning chain
+                            </Button>
+                            {isReasoningVisible && (
+                              <div id="evidence-reasoning-chain" role="region" aria-label="Active reasoning chain" style={{ marginTop: '8px' }}>
+                                {isAnalysisRunning ? (
+                                  <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '8px 0' }}>
+                                    <span className="pf-v5-c-spinner pf-m-sm" role="progressbar" aria-label="Re-running analysis">
+                                      <span className="pf-v5-c-spinner__clipper" />
+                                      <span className="pf-v5-c-spinner__lead-ball" />
+                                      <span className="pf-v5-c-spinner__tail-ball" />
+                                    </span>
+                                    <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+                                      Re-running analysis...
+                                    </Content>
+                                  </Flex>
+                                ) : (
+                                  <div style={{ paddingLeft: '8px', borderLeft: '2px solid var(--pf-t--global--border--color--default)' }}>
+                                    <Stack hasGutter>
+                                      {reasoningChain.map((step, idx) => (
+                                        <StackItem key={idx}>
+                                          <Flex alignItems={{ default: 'alignItemsFlexStart' }} gap={{ default: 'gapSm' }}>
+                                            <FlexItem style={{ flexShrink: 0 }}>
+                                              <div style={{
+                                                width: '8px',
+                                                height: '8px',
+                                                borderRadius: '50%',
+                                                backgroundColor: getStatusColor(step.status),
+                                                marginTop: '5px',
+                                                marginLeft: '-12px',
+                                              }} />
+                                            </FlexItem>
+                                            <FlexItem style={{ flexShrink: 0 }}>
+                                              <Label isCompact variant="outline" style={{ fontFamily: 'monospace', fontSize: '10px' }}>
+                                                {step.timestamp}
+                                              </Label>
+                                            </FlexItem>
+                                            <FlexItem>
+                                              <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+                                                {step.description}
+                                              </Content>
+                                            </FlexItem>
+                                          </Flex>
+                                        </StackItem>
+                                      ))}
+                                    </Stack>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </StackItem>
+
+                          {/* Raw logs (sub-toggle) */}
+                          <StackItem>
+                            <Button
+                              variant="link"
+                              isInline
+                              onClick={() => { setIsLogsVisible(!isLogsVisible); if (isLogsVisible) setShowAllLogs(false); }}
+                              aria-expanded={isLogsVisible}
+                              aria-controls="evidence-raw-logs"
+                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
+                              icon={
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isLogsVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                  <path d="M6 4l4 4-4 4z"/>
+                                </svg>
+                              }
+                            >
+                              Raw logs
+                            </Button>
+                            {isLogsVisible && (
+                              <div id="evidence-raw-logs" role="region" aria-label="Raw analysis logs" style={{ marginTop: '8px' }}>
+                                {(() => {
+                                  const logLines = analysisLogs.split('\n');
+                                  const visibleLines = showAllLogs ? logLines : logLines.slice(0, 3);
+                                  const hiddenCount = logLines.length - 3;
+                                  return (
+                                    <div style={{
+                                      backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                      border: '1px solid var(--pf-t--global--border--color--default)',
+                                      borderRadius: '4px',
+                                      padding: '10px',
+                                    }}>
+                                      <pre style={{
+                                        margin: 0,
+                                        fontSize: '10px',
+                                        lineHeight: '1.6',
+                                        fontFamily: 'var(--pf-t--global--font--family--mono)',
+                                        color: 'var(--pf-t--global--text--color--subtle)',
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-all',
+                                      }}>
+                                        {visibleLines.join('\n')}
+                                      </pre>
+                                      {!showAllLogs && hiddenCount > 0 && (
+                                        <Button
+                                          variant="link"
+                                          isInline
+                                          onClick={() => setShowAllLogs(true)}
+                                          style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
+                                        >
+                                          Show all logs ({hiddenCount} more lines)
+                                        </Button>
+                                      )}
+                                      {showAllLogs && (
+                                        <Button
+                                          variant="link"
+                                          isInline
+                                          onClick={() => setShowAllLogs(false)}
+                                          style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
+                                        >
+                                          Show less
+                                        </Button>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </StackItem>
+                        </Stack>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            </ExpandableSection>
-          </StackItem>
+              </ExpandableSection>
+            </StackItem>
+          )}
 
-          {/* Suggested Remediation Plans */}
-          <StackItem>
-            <ExpandableSection
-              toggleText="Suggested Remediation Plans"
-              isExpanded={isRemediationExpanded}
-              onToggle={(_e, expanded) => setIsRemediationExpanded(expanded)}
-            >
+          {/* Suggested Remediation Plans - Phase 3: User-triggered */}
+          {rootCauseAcknowledged && (
+            <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: rootCauseAcknowledged ? 1 : 0 }}>
+              <ExpandableSection
+                toggleText="Suggested Remediation Plans"
+                isExpanded={isRemediationExpanded}
+                onToggle={(_e, expanded) => setIsRemediationExpanded(expanded)}
+              >
               <div style={{ marginTop: '8px' }}>
                 {/* Plan selector */}
                 <Stack hasGutter>
                   {MOCK_REMEDIATION_PLANS.map((plan, planIdx) => (
                     <StackItem key={planIdx}>
                       <div
-                        onClick={() => setSelectedPlanIdx(planIdx)}
+                        onClick={() => { setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
                         style={{
                           padding: '12px',
                           borderRadius: '6px',
@@ -529,7 +684,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                 type="radio"
                                 name="remediation-plan"
                                 checked={selectedPlanIdx === planIdx}
-                                onChange={() => setSelectedPlanIdx(planIdx)}
+                                onChange={() => { setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
                                 style={{ margin: 0 }}
                               />
                               <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
@@ -558,255 +713,291 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                             </FlexItem>
                           )}
                         </Flex>
-                        <Flex gap={{ default: 'gapXs' }} style={{ marginTop: '8px', marginLeft: '24px' }} flexWrap={{ default: 'wrap' }}>
-                          <Label isCompact color={plan.risk === 'Low' ? 'green' : plan.risk === 'Medium' ? 'orange' : 'red'}>
-                            Risk: {plan.risk}
-                          </Label>
-                          <Label isCompact color={plan.reversible ? 'blue' : 'gold'}>
-                            {plan.reversible ? 'Reversible' : 'Non-reversible'}
-                          </Label>
-                          {plan.requiresRbac && (
-                            <Label isCompact color="purple">
-                              Requires RBAC
-                            </Label>
-                          )}
-                        </Flex>
-
-                        {/* Show steps when selected */}
+                        {/* Show details only for selected plan */}
                         {selectedPlanIdx === planIdx && (
-                          <div style={{ marginTop: '12px', marginLeft: '24px' }}>
-                            <Stack hasGutter>
-                              {plan.steps.map((step, stepIdx) => (
-                                <StackItem key={stepIdx}>
-                                  <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} flexWrap={{ default: 'nowrap' }}>
-                                    <FlexItem style={{ flexShrink: 0 }}>
-                                      <div style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        borderRadius: '50%',
-                                        backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                        border: '1px solid var(--pf-t--global--border--color--default)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        fontSize: '10px',
-                                        color: 'var(--pf-t--global--text--color--subtle)',
-                                        fontWeight: 600,
-                                      }}>
-                                        {stepIdx + 1}
-                                      </div>
-                                    </FlexItem>
-                                    <FlexItem>
-                                      <span style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.5' }}>
-                                        {step.parts.map((part, pIdx) =>
-                                          typeof part === 'string' ? (
-                                            <span key={pIdx}>{part}</span>
-                                          ) : (
-                                            <code key={pIdx} style={{
-                                              backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                              border: '1px solid var(--pf-t--global--border--color--default)',
-                                              borderRadius: '3px',
-                                              padding: '1px 4px',
-                                              fontSize: '12px',
-                                              fontFamily: 'var(--pf-t--global--font--family--mono)',
-                                            }}>{part.code}</code>
-                                          )
-                                        )}
-                                      </span>
-                                    </FlexItem>
-                                  </Flex>
-                                </StackItem>
-                              ))}
-                            </Stack>
+                          <div style={{ marginTop: '8px', marginLeft: '24px' }}>
+                            <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: '0 0 10px 0', lineHeight: '1.4' }}>
+                              {plan.description}
+                            </Content>
+                            <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }} style={{ marginBottom: '12px' }}>
+                              <Label isCompact variant="outline">
+                                Risk: {plan.risk}
+                              </Label>
+                              <Label isCompact variant="outline">
+                                {plan.reversible ? 'Reversible' : 'Non-reversible'}
+                              </Label>
+                              {plan.requiresRbac && (
+                                <Label isCompact variant="outline">
+                                  Requires RBAC
+                                </Label>
+                              )}
+                            </Flex>
 
-                            {/* RBAC Permissions Info */}
-                            {plan.requiresRbac && plan.rbacPermissions && (
-                              <div style={{
-                                marginTop: '16px',
-                                borderRadius: '6px',
-                                border: '1px solid var(--pf-t--global--border--color--default)',
-                                overflow: 'hidden',
-                              }}>
-                                <div style={{
-                                  padding: '12px 16px',
-                                  backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                                  borderBottom: '1px solid var(--pf-t--global--border--color--default)',
-                                }}>
-                                  <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
-                                    Required RBAC Permissions
-                                  </Content>
-                                </div>
-                                <div style={{ padding: '12px 16px' }}>
-                                  <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginBottom: '12px' }}>
-                                    <Icon size="sm" status="danger"><ExclamationCircleIcon /></Icon>
-                                    <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: 0 }}>
-                                      Review before approving
-                                    </Content>
-                                  </Flex>
-                                  <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', lineHeight: '1.5', fontStyle: 'italic', margin: '0 0 12px 0' }}>
-                                    Review these permissions carefully before approving. This is the exact set of permissions the Lightspeed operator will grant to the agent&apos;s execution sandbox. These permissions are enforced on every iteration, including retries, and cannot be altered by the agent during execution.
-                                  </Content>
-                                  {plan.rbacPermissions.map((perm, permIdx) => (
-                                    <div key={permIdx} style={{ marginTop: permIdx > 0 ? '12px' : 0 }}>
-                                      <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: '0 0 8px 0', display: 'block' }}>
-                                        Namespace Scoped
-                                      </Content>
-                                      <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '6px 12px', fontSize: '12px' }}>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Namespace</span>
-                                        <span><Label isCompact variant="outline">{perm.namespace}</Label></span>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>API Groups</span>
-                                        <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
-                                          {perm.apiGroups.map((g, i) => <Label key={i} isCompact variant="outline">{g}</Label>)}
+                            {/* Progressive disclosure toggles */}
+                            <Stack hasGutter>
+                              {/* Raw commands toggle */}
+                              <StackItem>
+                                <Button
+                                  variant="link"
+                                  isInline
+                                  onClick={(e) => { e.stopPropagation(); setShowRawCommands(!showRawCommands); }}
+                                  style={{ fontSize: '13px', paddingLeft: 0 }}
+                                  icon={
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showRawCommands ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                      <path d="M6 4l4 4-4 4z"/>
+                                    </svg>
+                                  }
+                                >
+                                  {showRawCommands ? 'Hide raw commands' : `Show raw commands (${plan.steps.length} lines)`}
+                                </Button>
+                                {showRawCommands && (
+                                  <div style={{ marginTop: '8px' }}>
+                                    <Stack hasGutter>
+                                      {plan.steps.map((step, stepIdx) => (
+                                        <StackItem key={stepIdx}>
+                                          <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} flexWrap={{ default: 'nowrap' }}>
+                                            <FlexItem style={{ flexShrink: 0 }}>
+                                              <div style={{
+                                                width: '18px',
+                                                height: '18px',
+                                                borderRadius: '50%',
+                                                backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                                border: '1px solid var(--pf-t--global--border--color--default)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '10px',
+                                                color: 'var(--pf-t--global--text--color--subtle)',
+                                                fontWeight: 600,
+                                              }}>
+                                                {stepIdx + 1}
+                                              </div>
+                                            </FlexItem>
+                                            <FlexItem>
+                                              <span style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.5' }}>
+                                                {step.parts.map((part, pIdx) =>
+                                                  typeof part === 'string' ? (
+                                                    <span key={pIdx}>{part}</span>
+                                                  ) : (
+                                                    <code key={pIdx} style={{
+                                                      backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                                                      border: '1px solid var(--pf-t--global--border--color--default)',
+                                                      borderRadius: '3px',
+                                                      padding: '1px 4px',
+                                                      fontSize: '12px',
+                                                      fontFamily: 'var(--pf-t--global--font--family--mono)',
+                                                    }}>{part.code}</code>
+                                                  )
+                                                )}
+                                              </span>
+                                            </FlexItem>
+                                          </Flex>
+                                        </StackItem>
+                                      ))}
+                                    </Stack>
+                                  </div>
+                                )}
+                              </StackItem>
+
+                              {/* RBAC roles toggle */}
+                              {plan.requiresRbac && plan.rbacPermissions && (
+                                <StackItem>
+                                  <Button
+                                    variant="link"
+                                    isInline
+                                    onClick={(e) => { e.stopPropagation(); setShowRbacRoles(!showRbacRoles); }}
+                                    style={{ fontSize: '13px', paddingLeft: 0 }}
+                                    icon={
+                                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showRbacRoles ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                        <path d="M6 4l4 4-4 4z"/>
+                                      </svg>
+                                    }
+                                  >
+                                    {showRbacRoles ? 'Hide RBAC roles' : `View ${plan.rbacPermissions.length} required RBAC role${plan.rbacPermissions.length !== 1 ? 's' : ''}`}
+                                  </Button>
+                                  {showRbacRoles && (
+                                    <div style={{
+                                      marginTop: '8px',
+                                      borderRadius: '6px',
+                                      border: '1px solid var(--pf-t--global--border--color--default)',
+                                      overflow: 'hidden',
+                                    }}>
+                                      <div style={{
+                                        padding: '10px 12px',
+                                        backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                                        borderBottom: '1px solid var(--pf-t--global--border--color--default)',
+                                      }}>
+                                        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+                                          <Icon size="sm" status="danger"><ExclamationCircleIcon /></Icon>
+                                          <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: 0 }}>
+                                            Review before approving
+                                          </Content>
                                         </Flex>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Resources</span>
-                                        <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
-                                          {perm.resources.map((r, i) => <Label key={i} isCompact color="blue">{r}</Label>)}
-                                        </Flex>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Verbs</span>
-                                        <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
-                                          {perm.verbs.map((v, i) => <Label key={i} isCompact color="green">{v}</Label>)}
-                                        </Flex>
-                                        <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Justification</span>
-                                        <span style={{ color: 'var(--pf-t--global--text--color--subtle)' }}>{perm.justification}</span>
+                                        <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '11px', lineHeight: '1.4', fontStyle: 'italic', margin: '6px 0 0 0' }}>
+                                          These permissions are granted to the agent&apos;s execution sandbox and cannot be altered during execution.
+                                        </Content>
+                                      </div>
+                                      <div style={{ padding: '10px 12px' }}>
+                                        {plan.rbacPermissions.map((perm, permIdx) => (
+                                          <div key={permIdx} style={{ marginTop: permIdx > 0 ? '10px' : 0 }}>
+                                            <Content component="small" style={{ fontWeight: 600, fontSize: '11px', margin: '0 0 6px 0', display: 'block' }}>
+                                              Namespace Scoped
+                                            </Content>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '4px 10px', fontSize: '12px' }}>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Namespace</span>
+                                              <span><Label isCompact variant="outline">{perm.namespace}</Label></span>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>API Groups</span>
+                                              <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
+                                                {perm.apiGroups.map((g, i) => <Label key={i} isCompact variant="outline">{g}</Label>)}
+                                              </Flex>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Resources</span>
+                                              <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
+                                                {perm.resources.map((r, i) => <Label key={i} isCompact color="blue">{r}</Label>)}
+                                              </Flex>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Verbs</span>
+                                              <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }}>
+                                                {perm.verbs.map((v, i) => <Label key={i} isCompact color="green">{v}</Label>)}
+                                              </Flex>
+                                              <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>Justification</span>
+                                              <span style={{ color: 'var(--pf-t--global--text--color--subtle)' }}>{perm.justification}</span>
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
                                     </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
+                                  )}
+                                </StackItem>
+                              )}
+                            </Stack>
                           </div>
                         )}
                       </div>
                     </StackItem>
                   ))}
                 </Stack>
-
-                {/* Action Buttons */}
-                <div style={{ marginTop: '20px' }}>
-                  {testState === 'idle' && (
-                    <Button variant="primary" onClick={handleTestRemediation}>
-                      Test Before Applying
-                    </Button>
-                  )}
-                  {testState === 'testing' && (
-                    <Button variant="primary" isLoading isDisabled>
-                      Testing remediation plan
-                    </Button>
-                  )}
-                  {testState === 'tested' && (
-                    <>
-                      {/* Verification Step */}
-                      <div style={{
-                        backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                        borderRadius: '8px',
-                        padding: '16px',
-                        border: '1px solid var(--pf-t--global--border--color--default)',
-                        marginBottom: '16px',
-                      }}>
-                        <Content component="small" style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px', display: 'block' }}>
-                          Verification Step
-                        </Content>
-                        <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.6', margin: 0 }}>
-                          <strong>Post-Remediation Check:</strong> The agent will track disk utilization on{' '}
-                          <code style={{
-                            backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                            border: '1px solid var(--pf-t--global--border--color--default)',
-                            borderRadius: '3px',
-                            padding: '1px 4px',
-                            fontSize: '12px',
-                            fontFamily: 'var(--pf-t--global--font--family--mono)',
-                          }}>prod-api-server-04</code>{' '}
-                          for 5 minutes post-execution. Success criteria requires total disk usage to drop below 75% and{' '}
-                          <code style={{
-                            backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                            border: '1px solid var(--pf-t--global--border--color--default)',
-                            borderRadius: '3px',
-                            padding: '1px 4px',
-                            fontSize: '12px',
-                            fontFamily: 'var(--pf-t--global--font--family--mono)',
-                          }}>logrotate.service</code>{' '}
-                          to return a successful exit code (0).
-                        </Content>
-                        <Flex gap={{ default: 'gapMd' }} style={{ marginTop: '12px' }} alignItems={{ default: 'alignItemsCenter' }}>
-                          <Button variant="link" style={{ paddingLeft: 0 }} icon={<AiExperienceIcon />}>
-                            Discuss with LightSpeed
-                          </Button>
-                          <Button variant="link" style={{ paddingLeft: 0 }} icon={<DownloadIcon />}>
-                            Download remediation guide
-                          </Button>
-                        </Flex>
-                      </div>
-                      {affectedClusters.length > 1 ? (
-                        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapNone' }}>
-                          <FlexItem>
-                            <Button variant="primary" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
-                              Apply Remediation ({selectedClusters.size} of {affectedClusters.length} clusters)
-                            </Button>
-                          </FlexItem>
-                          <FlexItem>
-                            <Dropdown
-                              isOpen={isApplyDropdownOpen}
-                              onOpenChange={(open) => setIsApplyDropdownOpen(open)}
-                              toggle={(toggleRef: React.Ref<MenuToggleElement>) => (
-                                <MenuToggle
-                                  ref={toggleRef}
-                                  variant="primary"
-                                  onClick={() => setIsApplyDropdownOpen(!isApplyDropdownOpen)}
-                                  isExpanded={isApplyDropdownOpen}
-                                  style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: '8px', paddingRight: '8px' }}
-                                  aria-label="Select clusters"
-                                >
-                                  {null}
-                                </MenuToggle>
-                              )}
-                              popperProps={{ position: 'right' }}
-                            >
-                              <DropdownList>
-                                <DropdownItem key="select-all" onClick={() => setSelectedClusters(new Set(affectedClusters))}>
-                                  Select all clusters
-                                </DropdownItem>
-                                <DropdownItem key="deselect-all" onClick={() => setSelectedClusters(new Set())}>
-                                  Deselect all
-                                </DropdownItem>
-                                <Divider component="li" />
-                                {affectedClusters.map((cluster) => (
-                                  <DropdownItem key={cluster} onClick={(e) => { e.preventDefault(); toggleClusterSelection(cluster); }} style={{ padding: '8px 16px' }}>
-                                    <Checkbox
-                                      id={`cluster-${cluster}`}
-                                      label={cluster}
-                                      isChecked={selectedClusters.has(cluster)}
-                                      onChange={() => toggleClusterSelection(cluster)}
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                  </DropdownItem>
-                                ))}
-                              </DropdownList>
-                            </Dropdown>
-                          </FlexItem>
-                        </Flex>
-                      ) : (
-                        <Button variant="primary">
-                          Apply Remediation
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
               </div>
             </ExpandableSection>
           </StackItem>
+          )}
         </Stack>
       </div>
 
-      {/* Footer disclaimer */}
+      {/* Fixed Footer - Primary Actions */}
       <div style={{
-        padding: '12px 16px',
+        padding: '16px',
         borderTop: '1px solid var(--pf-t--global--border--color--default)',
         flexShrink: 0,
+        backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
       }}>
-        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
-          <Icon size="sm" status="info"><InfoCircleIcon /></Icon>
+        {!rootCauseAcknowledged && (
           <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+            {analysisComplete ? 'Acknowledge the root cause analysis to proceed with remediation.' : 'Analysis in progress...'}
+          </Content>
+        )}
+        {rootCauseAcknowledged && testState === 'idle' && (
+          <Button variant="primary" onClick={handleTestRemediation}>
+            Test Before Applying
+          </Button>
+        )}
+        {rootCauseAcknowledged && testState === 'testing' && (
+          <Button variant="primary" isLoading isDisabled>
+            Testing remediation plan
+          </Button>
+        )}
+        {rootCauseAcknowledged && testState === 'tested' && (
+          <Stack hasGutter>
+            <StackItem>
+              <div style={{
+                backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                borderRadius: '8px',
+                padding: '12px',
+                border: '1px solid var(--pf-t--global--border--color--default)',
+              }}>
+                <Content component="small" style={{ fontWeight: 600, fontSize: '12px', marginBottom: '6px', display: 'block' }}>
+                  Verification Step
+                </Content>
+                <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', lineHeight: '1.5', margin: 0 }}>
+                  <strong>Post-Remediation Check:</strong> Track disk utilization on{' '}
+                  <code style={{
+                    backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                    border: '1px solid var(--pf-t--global--border--color--default)',
+                    borderRadius: '3px',
+                    padding: '1px 4px',
+                    fontSize: '11px',
+                    fontFamily: 'var(--pf-t--global--font--family--mono)',
+                  }}>prod-api-server-04</code>{' '}
+                  for 5 min. Success: disk &lt; 75%, logrotate exit code 0.
+                </Content>
+                <Flex gap={{ default: 'gapMd' }} style={{ marginTop: '8px' }} alignItems={{ default: 'alignItemsCenter' }}>
+                  <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<AiExperienceIcon />}>
+                    Discuss with LightSpeed
+                  </Button>
+                  <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<DownloadIcon />}>
+                    Download remediation guide
+                  </Button>
+                </Flex>
+              </div>
+            </StackItem>
+            <StackItem>
+              {affectedClusters.length > 1 ? (
+                <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapNone' }}>
+                  <FlexItem>
+                    <Button variant="primary" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
+                      Apply Remediation ({selectedClusters.size} of {affectedClusters.length} clusters)
+                    </Button>
+                  </FlexItem>
+                  <FlexItem>
+                    <Dropdown
+                      isOpen={isApplyDropdownOpen}
+                      onOpenChange={(open) => setIsApplyDropdownOpen(open)}
+                      toggle={(toggleRef: React.Ref<MenuToggleElement>) => (
+                        <MenuToggle
+                          ref={toggleRef}
+                          variant="primary"
+                          onClick={() => setIsApplyDropdownOpen(!isApplyDropdownOpen)}
+                          isExpanded={isApplyDropdownOpen}
+                          style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: '8px', paddingRight: '8px' }}
+                          aria-label="Select clusters"
+                        >
+                          {null}
+                        </MenuToggle>
+                      )}
+                      popperProps={{ position: 'right' }}
+                    >
+                      <DropdownList>
+                        <DropdownItem key="select-all" onClick={() => setSelectedClusters(new Set(affectedClusters))}>
+                          Select all clusters
+                        </DropdownItem>
+                        <DropdownItem key="deselect-all" onClick={() => setSelectedClusters(new Set())}>
+                          Deselect all
+                        </DropdownItem>
+                        <Divider component="li" />
+                        {affectedClusters.map((cluster) => (
+                          <DropdownItem key={cluster} onClick={(e) => { e.preventDefault(); toggleClusterSelection(cluster); }} style={{ padding: '8px 16px' }}>
+                            <Checkbox
+                              id={`cluster-footer-${cluster}`}
+                              label={cluster}
+                              isChecked={selectedClusters.has(cluster)}
+                              onChange={() => toggleClusterSelection(cluster)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </DropdownItem>
+                        ))}
+                      </DropdownList>
+                    </Dropdown>
+                  </FlexItem>
+                </Flex>
+              ) : (
+                <Button variant="primary">
+                  Apply Remediation
+                </Button>
+              )}
+            </StackItem>
+          </Stack>
+        )}
+        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginTop: '12px' }}>
+          <Icon size="sm" status="info"><InfoCircleIcon /></Icon>
+          <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '11px', margin: 0 }}>
             Always review AI-generated content prior to use.
           </Content>
         </Flex>
