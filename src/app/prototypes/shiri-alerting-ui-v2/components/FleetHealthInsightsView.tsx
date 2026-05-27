@@ -216,28 +216,7 @@ export const FleetHealthInsightsView: React.FC<FleetHealthInsightsViewProps> = (
                     <span style={AI_INSIGHT_ICON_STYLE} aria-hidden="true"><OptimizeIcon style={{ width: 14, height: 14 }} /></span>
                     <span style={{ fontSize: 'var(--pf-t--global--font--size--sm)', minWidth: 0, flex: 1, lineHeight: 1.5 }}>
                       <span style={{ fontWeight: 600, color: 'var(--pf-t--global--text--color--subtle)' }}>AI insight: </span>
-                      <span style={AI_INSIGHT_TEXT_STYLE}>{getComponentAiInsight(comp.name)}</span>{' '}
-                      <Button
-                        variant="link"
-                        isInline
-                        className="pf-v6-u-font-size-sm"
-                        style={{ ...INSIGHTS_LINK, padding: 0, verticalAlign: 'baseline' }}
-                        icon={<AiTroubleshootIcon size={14} />}
-                        onClick={() => {
-                          if (onInvestigateWithAi) {
-                            const dominantSev = comp.critical > 0 ? 'Critical' : comp.warning > 0 ? 'Warning' : 'Info';
-                            onInvestigateWithAi(comp.name, dominantSev, comp.clusters);
-                          } else {
-                            openLightspeed({
-                              sourceType: 'component',
-                              sourceName: comp.name,
-                              aiInsightText: getComponentAiInsight(comp.name),
-                            });
-                          }
-                        }}
-                      >
-                        Investigate with AI
-                      </Button>
+                      <span style={AI_INSIGHT_TEXT_STYLE}>{getComponentAiInsight(comp.name)}</span>
                     </span>
                   </Flex>
                 </div>

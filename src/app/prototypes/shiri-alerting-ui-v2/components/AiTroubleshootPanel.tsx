@@ -51,49 +51,76 @@ export interface AiTroubleshootPanelProps {
   onClose: () => void;
 }
 
-interface ReasoningStep {
-  timestamp: string;
-  description: string;
-  status: 'success' | 'info' | 'warning' | 'active';
+interface InvestigationStep {
+  action: string;
+  component: string;
+  durationMs: number;
+  result: string;
+  leadsTo?: number;
 }
 
-const MOCK_REASONING_CHAIN_SMART: ReasoningStep[] = [
-  { timestamp: '10:04', description: 'Detected DiskUsageCritical threshold breach (98.4% capacity reached).', status: 'warning' },
-  { timestamp: '10:04:56', description: 'Queried system metrics: Isolated the anomaly to the /var partition.', status: 'success' },
-  { timestamp: '10:04:58', description: 'Scanned running processes: Found nginx writing to disk at 85MB/s.', status: 'success' },
-  { timestamp: '10:05:01', description: 'Inspected file system: Found /var/log/nginx/access.log sitting at 142GB.', status: 'success' },
-  { timestamp: '10:05:09', description: 'Checked cron history: Discovered logrotate.service failed earlier today with status exit-code: 1 (Permission Denied).', status: 'info' },
-  { timestamp: '10:05:14', description: 'Cross-correlated with deployment events: Security hardening playbook ran at 09:30 modifying /etc/logrotate.d/*.', status: 'success' },
-  { timestamp: '10:05:21', description: 'Blast-radius assessment: 3 additional hosts share the same playbook config — at risk of similar failure.', status: 'warning' },
+const MOCK_STEPS_SMART: InvestigationStep[] = [
+  { action: 'Queried node-level disk metrics', component: '/var partition', durationMs: 560, result: '98.4% capacity, 1.6% remaining', leadsTo: 2 },
+  { action: 'Scanned nginx container logs', component: 'nginx (PID 2847)', durationMs: 2400, result: 'Writing 85MB/s to access.log', leadsTo: 3 },
+  { action: 'Inspected file system inodes', component: '/var/log/nginx/access.log', durationMs: 3100, result: 'Single file at 142GB, unrotated', leadsTo: 4 },
+  { action: 'Checked logrotate service status', component: 'logrotate.service', durationMs: 8200, result: 'Found permission exception 0644', leadsTo: 5 },
+  { action: 'Cross-referenced deployment events', component: 'ansible-playbook', durationMs: 5400, result: 'security-hardening.yml modified /etc/logrotate.d/*', leadsTo: 6 },
+  { action: 'Assessed blast radius across fleet', component: 'Cluster fleet', durationMs: 7100, result: '3 additional hosts share same config' },
 ];
 
-const MOCK_REASONING_CHAIN_FAST: ReasoningStep[] = [
-  { timestamp: '10:04', description: 'Detected DiskUsageCritical threshold breach (98.4% capacity reached).', status: 'warning' },
-  { timestamp: '10:04:12', description: 'Identified /var partition as primary contributor via df metrics.', status: 'success' },
-  { timestamp: '10:04:18', description: 'Matched known pattern: large log file + failed logrotate service.', status: 'success' },
+const MOCK_STEPS_FAST: InvestigationStep[] = [
+  { action: 'Queried primary disk metric', component: '/var partition', durationMs: 340, result: '98.4% capacity detected', leadsTo: 2 },
+  { action: 'Matched known alert pattern', component: 'Pattern DB (DISK-003)', durationMs: 6200, result: 'Large log + failed logrotate match' },
 ];
 
-const MOCK_ANALYSIS_LOGS_SMART = `[10:04:00.123] INFO  Starting deep multi-signal analysis for alert DiskUsageCritical
-[10:04:00.124] DEBUG Connecting to metrics store (prometheus-k8s.openshift-monitoring:9090)
-[10:04:00.341] INFO  Query: node_filesystem_avail_bytes{mountpoint="/var"} / node_filesystem_size_bytes{mountpoint="/var"}
-[10:04:00.587] INFO  Result: 1.6% available (threshold: 5%)
-[10:04:56.002] INFO  Isolating anomaly: /var partition identified as root cause
-[10:04:56.110] DEBUG Scanning process table for high disk I/O writers
-[10:04:58.443] INFO  Found: nginx (PID 2847) writing 85MB/s to /var/log/nginx/access.log
-[10:05:01.221] INFO  File inspection: /var/log/nginx/access.log size=142GB modified=2m ago
-[10:05:01.445] DEBUG Checking systemd unit status for logrotate.service
-[10:05:09.012] WARN  logrotate.service: exit-code 1 (Permission Denied) at 09:31:04 UTC
-[10:05:14.556] INFO  Cross-referencing deployment/change events in 24h window
-[10:05:14.801] INFO  Match: ansible-playbook security-hardening.yml executed at 09:30:02 UTC
-[10:05:21.003] WARN  Blast-radius: 3 additional hosts share playbook config (prod-api-server-01,02,03)
-[10:05:21.120] INFO  Analysis complete. Confidence: 94%`;
+interface TopologyNode {
+  id: string;
+  label: string;
+  type: 'cluster' | 'node' | 'pod' | 'service';
+}
 
-const MOCK_ANALYSIS_LOGS_FAST = `[10:04:00.123] INFO  Starting fast single-signal analysis for alert DiskUsageCritical
-[10:04:00.124] DEBUG Connecting to metrics store (prometheus-k8s.openshift-monitoring:9090)
-[10:04:00.341] INFO  Query: node_filesystem_avail_bytes{mountpoint="/var"}
-[10:04:12.102] INFO  Identified /var as primary contributor (98.4% used)
-[10:04:18.445] INFO  Pattern match: large log + failed logrotate (known pattern ID: DISK-003)
-[10:04:18.501] INFO  Analysis complete. Confidence: 78%`;
+interface TopologyEdge {
+  from: string;
+  to: string;
+  annotation: string;
+}
+
+const TOPOLOGY_NODES: TopologyNode[] = [
+  { id: 'cluster', label: 'prod-cluster-east', type: 'cluster' },
+  { id: 'node', label: 'prod-api-server-04', type: 'node' },
+  { id: 'pod-nginx', label: 'nginx-7b4d6', type: 'pod' },
+  { id: 'svc-logrotate', label: 'logrotate.service', type: 'service' },
+  { id: 'pod-nginx-2', label: 'nginx-8c5e7', type: 'pod' },
+];
+
+const TOPOLOGY_EDGES: TopologyEdge[] = [
+  { from: 'cluster', to: 'node', annotation: '98.4% disk' },
+  { from: 'node', to: 'pod-nginx', annotation: '85MB/s write' },
+  { from: 'node', to: 'svc-logrotate', annotation: 'exit 1' },
+  { from: 'node', to: 'pod-nginx-2', annotation: 'at risk' },
+];
+
+const MOCK_ANALYSIS_LOGS_SMART = `INFO  Starting deep multi-signal analysis for alert DiskUsageCritical
+DEBUG Connecting to metrics store (prometheus-k8s.openshift-monitoring:9090)
+INFO  Query: node_filesystem_avail_bytes{mountpoint="/var"} / node_filesystem_size_bytes{mountpoint="/var"}
+INFO  Result: 1.6% available (threshold: 5%)
+INFO  Isolating anomaly: /var partition identified as root cause
+DEBUG Scanning process table for high disk I/O writers
+INFO  Found: nginx (PID 2847) writing 85MB/s to /var/log/nginx/access.log
+INFO  File inspection: /var/log/nginx/access.log size=142GB modified=2m ago
+DEBUG Checking systemd unit status for logrotate.service
+WARN  logrotate.service: exit-code 1 (Permission Denied)
+INFO  Cross-referencing deployment/change events in 24h window
+INFO  Match: ansible-playbook security-hardening.yml executed
+WARN  Blast-radius: 3 additional hosts share playbook config (prod-api-server-01,02,03)
+INFO  Analysis complete. Confidence: 94%`;
+
+const MOCK_ANALYSIS_LOGS_FAST = `INFO  Starting fast single-signal analysis for alert DiskUsageCritical
+DEBUG Connecting to metrics store (prometheus-k8s.openshift-monitoring:9090)
+INFO  Query: node_filesystem_avail_bytes{mountpoint="/var"}
+INFO  Identified /var as primary contributor (98.4% used)
+INFO  Pattern match: large log + failed logrotate (known pattern ID: DISK-003)
+INFO  Analysis complete. Confidence: 78%`;
 
 const MOCK_ROOT_CAUSE = `Finding: The logrotate daemon failed to compress and cycle Nginx access logs due to a broken permission mask (0644 instead of 0640 expected by the system user) introduced during a routine security hardening script. Uncompressed active logs consumed the entire partition during peak afternoon traffic.`;
 
@@ -184,18 +211,16 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
   const [isAnalysisDropdownOpen, setIsAnalysisDropdownOpen] = React.useState(false);
   const [isAnalysisRunning, setIsAnalysisRunning] = React.useState(false);
   const [showEvidence, setShowEvidence] = React.useState(false);
-  const [isReasoningVisible, setIsReasoningVisible] = React.useState(true);
-  const [isLogsVisible, setIsLogsVisible] = React.useState(false);
+  const [evidenceView, setEvidenceView] = React.useState<'timeline' | 'topology'>('timeline');
+  const [showRawLogs, setShowRawLogs] = React.useState(false);
   const [showAllLogs, setShowAllLogs] = React.useState(false);
   const [selectedPlanIdx, setSelectedPlanIdx] = React.useState(0);
   const [showRawCommands, setShowRawCommands] = React.useState(false);
   const [showRbacRoles, setShowRbacRoles] = React.useState(false);
-  const [isTopologyVisible, setIsTopologyVisible] = React.useState(false);
-  const [isTopologyFullscreen, setIsTopologyFullscreen] = React.useState(false);
   const [topologyZoom, setTopologyZoom] = React.useState(1);
   const [analysisComplete, setAnalysisComplete] = React.useState(false);
 
-  const reasoningChain = analysisType === 'smart' ? MOCK_REASONING_CHAIN_SMART : MOCK_REASONING_CHAIN_FAST;
+  const investigationSteps = analysisType === 'smart' ? MOCK_STEPS_SMART : MOCK_STEPS_FAST;
   const analysisLogs = analysisType === 'smart' ? MOCK_ANALYSIS_LOGS_SMART : MOCK_ANALYSIS_LOGS_FAST;
 
   // Phase 2: Auto-reveal root cause after reasoning chain "completes"
@@ -268,14 +293,9 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
     setTimeout(() => setTestState('tested'), 2000);
   };
 
-  const getStatusColor = (status: ReasoningStep['status']) => {
-    switch (status) {
-      case 'success': return 'var(--pf-t--global--text--color--subtle)';
-      case 'warning': return 'var(--pf-t--global--text--color--regular)';
-      case 'info': return 'var(--pf-t--global--text--color--subtle)';
-      case 'active': return 'var(--pf-t--global--text--color--regular)';
-      default: return 'var(--pf-t--global--text--color--subtle)';
-    }
+  const formatDuration = (ms: number): string => {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
   };
 
   return (
@@ -414,7 +434,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                     </Flex>
                   </div>
 
-                  {/* Supporting evidence: nested under RCA */}
+                  {/* Supporting evidence: dual-view diagnostic */}
                   <div style={{ marginTop: '12px' }}>
                     <Button
                       variant="link"
@@ -439,301 +459,361 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                         aria-label="Supporting evidence for root cause analysis"
                         style={{
                           marginTop: '10px',
-                          paddingLeft: '12px',
                           borderLeft: '3px solid var(--pf-t--global--border--color--default)',
                           backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
                           borderRadius: '0 6px 6px 0',
                           padding: '12px 12px 12px 16px',
                         }}
                       >
-                        <Stack hasGutter>
-                          {/* Analysis type selector */}
-                          <StackItem>
-                            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
-                              <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>Analysis type:</Content>
-                              <div style={{ position: 'relative' }}>
-                                <MenuToggle
-                                  onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)}
-                                  isExpanded={isAnalysisDropdownOpen}
-                                  style={{ minWidth: '140px' }}
-                                  aria-label="Select analysis type"
-                                >
-                                  {analysisType === 'smart' ? 'Smart' : 'Fast'}
-                                </MenuToggle>
-                                {isAnalysisDropdownOpen && (
-                                  <div style={{
-                                    position: 'absolute',
-                                    top: '100%',
-                                    left: 0,
-                                    zIndex: 1000,
-                                    marginTop: '4px',
-                                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                    border: '1px solid var(--pf-t--global--border--color--default)',
-                                    borderRadius: '6px',
-                                    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-                                    minWidth: '260px',
-                                    overflow: 'hidden',
-                                  }}>
-                                    <div
-                                      role="option"
-                                      aria-selected={analysisType === 'smart'}
-                                      onClick={() => { handleAnalysisTypeChange('smart'); setIsAnalysisDropdownOpen(false); }}
-                                      style={{
-                                        padding: '10px 16px',
-                                        cursor: 'pointer',
-                                        backgroundColor: analysisType === 'smart' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                                      }}
-                                    >
-                                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart</Content>
-                                      <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                                        Deep multi-signal correlation. Higher confidence analysis.
-                                      </Content>
-                                    </div>
-                                    <div style={{ borderTop: '1px solid var(--pf-t--global--border--color--default)' }} />
-                                    <div
-                                      role="option"
-                                      aria-selected={analysisType === 'fast'}
-                                      onClick={() => { handleAnalysisTypeChange('fast'); setIsAnalysisDropdownOpen(false); }}
-                                      style={{
-                                        padding: '10px 16px',
-                                        cursor: 'pointer',
-                                        backgroundColor: analysisType === 'fast' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                                      }}
-                                    >
-                                      <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast</Content>
-                                      <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                                        Quick single-signal analysis for known alert patterns.
-                                      </Content>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </Flex>
-                          </StackItem>
-
-                          {/* Active reasoning chain (sub-toggle) */}
-                          <StackItem>
-                            <Button
-                              variant="link"
-                              isInline
-                              onClick={() => setIsReasoningVisible(!isReasoningVisible)}
-                              aria-expanded={isReasoningVisible}
-                              aria-controls="evidence-reasoning-chain"
-                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
-                              icon={
-                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isReasoningVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-                                  <path d="M6 4l4 4-4 4z"/>
-                                </svg>
-                              }
+                        {/* Analysis type selector */}
+                        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginBottom: '12px' }}>
+                          <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>Analysis:</Content>
+                          <div style={{ position: 'relative' }}>
+                            <MenuToggle
+                              onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)}
+                              isExpanded={isAnalysisDropdownOpen}
+                              style={{ minWidth: '120px' }}
+                              aria-label="Select analysis type"
                             >
-                              Active reasoning chain
-                            </Button>
-                            {isReasoningVisible && (
-                              <div id="evidence-reasoning-chain" role="region" aria-label="Active reasoning chain" style={{ marginTop: '8px' }}>
-                                {isAnalysisRunning ? (
-                                  <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '8px 0' }}>
-                                    <span className="pf-v5-c-spinner pf-m-sm" role="progressbar" aria-label="Re-running analysis">
-                                      <span className="pf-v5-c-spinner__clipper" />
-                                      <span className="pf-v5-c-spinner__lead-ball" />
-                                      <span className="pf-v5-c-spinner__tail-ball" />
-                                    </span>
-                                    <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
-                                      Re-running analysis...
-                                    </Content>
-                                  </Flex>
-                                ) : (
-                                  <div style={{ paddingLeft: '8px', borderLeft: '2px solid var(--pf-t--global--border--color--default)' }}>
-                                    <Stack hasGutter>
-                                      {reasoningChain.map((step, idx) => (
-                                        <StackItem key={idx}>
-                                          <Flex alignItems={{ default: 'alignItemsFlexStart' }} gap={{ default: 'gapSm' }}>
-                                            <FlexItem style={{ flexShrink: 0 }}>
-                                              <div style={{
-                                                width: '8px',
-                                                height: '8px',
-                                                borderRadius: '50%',
-                                                backgroundColor: getStatusColor(step.status),
-                                                marginTop: '5px',
-                                                marginLeft: '-12px',
-                                              }} />
-                                            </FlexItem>
-                                            <FlexItem style={{ flexShrink: 0 }}>
-                                              <Label isCompact variant="outline" style={{ fontFamily: 'monospace', fontSize: '10px' }}>
-                                                {step.timestamp}
-                                              </Label>
-                                            </FlexItem>
-                                            <FlexItem>
-                                              <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
-                                                {step.description}
-                                              </Content>
-                                            </FlexItem>
-                                          </Flex>
-                                        </StackItem>
-                                      ))}
-                                    </Stack>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </StackItem>
-
-                          {/* Raw logs (sub-toggle) */}
-                          <StackItem>
-                            <Button
-                              variant="link"
-                              isInline
-                              onClick={() => { setIsLogsVisible(!isLogsVisible); if (isLogsVisible) setShowAllLogs(false); }}
-                              aria-expanded={isLogsVisible}
-                              aria-controls="evidence-raw-logs"
-                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
-                              icon={
-                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isLogsVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-                                  <path d="M6 4l4 4-4 4z"/>
-                                </svg>
-                              }
-                            >
-                              Raw logs
-                            </Button>
-                            {isLogsVisible && (
-                              <div id="evidence-raw-logs" role="region" aria-label="Raw analysis logs" style={{ marginTop: '8px' }}>
-                                {(() => {
-                                  const logLines = analysisLogs.split('\n');
-                                  const visibleLines = showAllLogs ? logLines : logLines.slice(0, 3);
-                                  const hiddenCount = logLines.length - 3;
-                                  return (
-                                    <div style={{
-                                      backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                      border: '1px solid var(--pf-t--global--border--color--default)',
-                                      borderRadius: '4px',
-                                      padding: '10px',
-                                    }}>
-                                      <pre style={{
-                                        margin: 0,
-                                        fontSize: '10px',
-                                        lineHeight: '1.6',
-                                        fontFamily: 'var(--pf-t--global--font--family--mono)',
-                                        color: 'var(--pf-t--global--text--color--subtle)',
-                                        whiteSpace: 'pre-wrap',
-                                        wordBreak: 'break-all',
-                                      }}>
-                                        {visibleLines.join('\n')}
-                                      </pre>
-                                      {!showAllLogs && hiddenCount > 0 && (
-                                        <Button
-                                          variant="link"
-                                          isInline
-                                          onClick={() => setShowAllLogs(true)}
-                                          style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
-                                        >
-                                          Show all logs ({hiddenCount} more lines)
-                                        </Button>
-                                      )}
-                                      {showAllLogs && (
-                                        <Button
-                                          variant="link"
-                                          isInline
-                                          onClick={() => setShowAllLogs(false)}
-                                          style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
-                                        >
-                                          Show less
-                                        </Button>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
-                          </StackItem>
-
-                          {/* Signal topology (sub-toggle) */}
-                          <StackItem>
-                            <Button
-                              variant="link"
-                              isInline
-                              onClick={() => setIsTopologyVisible(!isTopologyVisible)}
-                              aria-expanded={isTopologyVisible}
-                              aria-controls="evidence-topology"
-                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
-                              icon={
-                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isTopologyVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-                                  <path d="M6 4l4 4-4 4z"/>
-                                </svg>
-                              }
-                            >
-                              Signal topology
-                            </Button>
-                            {isTopologyVisible && (
-                              <div id="evidence-topology" role="region" aria-label="Signal topology diagram" style={{ marginTop: '8px' }}>
+                              {analysisType === 'smart' ? 'Smart' : 'Fast'}
+                            </MenuToggle>
+                            {isAnalysisDropdownOpen && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                zIndex: 1000,
+                                marginTop: '4px',
+                                backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                border: '1px solid var(--pf-t--global--border--color--default)',
+                                borderRadius: '6px',
+                                boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                                minWidth: '240px',
+                                overflow: 'hidden',
+                              }}>
                                 <div
-                                  onClick={() => { setIsTopologyFullscreen(true); setTopologyZoom(1); }}
+                                  role="option"
+                                  aria-selected={analysisType === 'smart'}
+                                  onClick={() => { handleAnalysisTypeChange('smart'); setIsAnalysisDropdownOpen(false); }}
                                   style={{
-                                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                    border: '1px solid var(--pf-t--global--border--color--default)',
-                                    borderRadius: '6px',
-                                    padding: '12px',
+                                    padding: '10px 16px',
                                     cursor: 'pointer',
-                                    position: 'relative',
+                                    backgroundColor: analysisType === 'smart' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
                                   }}
-                                  title="Click to view full screen"
                                 >
-                                  {/* Topology preview (inline SVG diagram) */}
-                                  <svg width="100%" height="160" viewBox="0 0 400 200" fill="none" aria-label="Topology graph showing Deployment connected to Event, Pod, Logs, Metric, Network, Node, and Service resources">
-                                    {/* Deployment node (root) */}
-                                    <circle cx="60" cy="30" r="20" stroke="var(--pf-t--global--color--status--info--default)" strokeWidth="2" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="60" y="34" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Deploy</text>
-                                    <text x="60" y="58" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Deployment (1)</text>
-
-                                    {/* Row 1 nodes */}
-                                    <circle cx="40" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="40" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Event</text>
-                                    <text x="40" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Event (2)</text>
-
-                                    <circle cx="110" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="110" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Pod</text>
-                                    <text x="110" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Pod (1)</text>
-
-                                    <circle cx="180" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="180" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Logs</text>
-                                    <text x="180" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Logs (61)</text>
-
-                                    <circle cx="250" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="250" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Metric</text>
-                                    <text x="250" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Metric (17)</text>
-
-                                    <circle cx="330" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="330" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Network</text>
-                                    <text x="330" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Network (15)</text>
-
-                                    {/* Row 2 nodes */}
-                                    <circle cx="110" cy="175" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="110" y="178" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Node</text>
-                                    <text x="110" y="198" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Node (1)</text>
-
-                                    <circle cx="200" cy="175" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-                                    <text x="200" y="178" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Service</text>
-                                    <text x="200" y="198" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Service (1)</text>
-
-                                    {/* Edges from Deployment */}
-                                    <line x1="60" y1="50" x2="40" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
-                                    <line x1="60" y1="50" x2="110" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
-                                    <line x1="60" y1="50" x2="180" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
-                                    <line x1="60" y1="50" x2="250" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
-                                    <line x1="60" y1="50" x2="330" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
-                                    {/* Edges from Pod */}
-                                    <line x1="110" y1="126" x2="110" y2="159" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
-                                    <line x1="110" y1="126" x2="200" y2="159" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
-                                  </svg>
-                                  {/* Expand hint */}
-                                  <div style={{ position: 'absolute', bottom: '8px', right: '8px', opacity: 0.6 }}>
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="var(--pf-t--global--text--color--subtle)">
-                                      <path d="M2 9v5h5v-1H4.4l3.3-3.3-.7-.7L3.7 12.3V10H2zM14 7V2H9v1h2.6l-3.3 3.3.7.7L12.3 3.7V6H14z"/>
-                                    </svg>
-                                  </div>
+                                  <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart</Content>
+                                  <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                    Deep multi-signal correlation. Higher confidence.
+                                  </Content>
+                                </div>
+                                <div style={{ borderTop: '1px solid var(--pf-t--global--border--color--default)' }} />
+                                <div
+                                  role="option"
+                                  aria-selected={analysisType === 'fast'}
+                                  onClick={() => { handleAnalysisTypeChange('fast'); setIsAnalysisDropdownOpen(false); }}
+                                  style={{
+                                    padding: '10px 16px',
+                                    cursor: 'pointer',
+                                    backgroundColor: analysisType === 'fast' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
+                                  }}
+                                >
+                                  <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast</Content>
+                                  <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                    Quick single-signal analysis for known patterns.
+                                  </Content>
                                 </div>
                               </div>
                             )}
-                          </StackItem>
-                        </Stack>
+                          </div>
+                        </Flex>
+
+                        {/* View switcher (segmented control) */}
+                        <div role="tablist" aria-label="Evidence view" style={{
+                          display: 'inline-flex',
+                          border: '1px solid var(--pf-t--global--border--color--default)',
+                          borderRadius: '6px',
+                          overflow: 'hidden',
+                          marginBottom: '12px',
+                        }}>
+                          <button
+                            role="tab"
+                            aria-selected={evidenceView === 'timeline'}
+                            aria-controls="evidence-panel-timeline"
+                            onClick={() => setEvidenceView('timeline')}
+                            style={{
+                              padding: '6px 14px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              border: 'none',
+                              cursor: 'pointer',
+                              backgroundColor: evidenceView === 'timeline' ? 'var(--pf-t--global--background--color--primary--default)' : 'transparent',
+                              color: evidenceView === 'timeline' ? 'var(--pf-t--global--text--color--regular)' : 'var(--pf-t--global--text--color--subtle)',
+                              borderRight: '1px solid var(--pf-t--global--border--color--default)',
+                            }}
+                          >
+                            Investigation timeline
+                          </button>
+                          <button
+                            role="tab"
+                            aria-selected={evidenceView === 'topology'}
+                            aria-controls="evidence-panel-topology"
+                            onClick={() => setEvidenceView('topology')}
+                            style={{
+                              padding: '6px 14px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              border: 'none',
+                              cursor: 'pointer',
+                              backgroundColor: evidenceView === 'topology' ? 'var(--pf-t--global--background--color--primary--default)' : 'transparent',
+                              color: evidenceView === 'topology' ? 'var(--pf-t--global--text--color--regular)' : 'var(--pf-t--global--text--color--subtle)',
+                            }}
+                          >
+                            Topology view
+                          </button>
+                        </div>
+
+                        {/* Investigation Timeline panel */}
+                        {evidenceView === 'timeline' && (
+                          <div id="evidence-panel-timeline" role="tabpanel" aria-label="Investigation timeline">
+                            {isAnalysisRunning ? (
+                              <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '12px 0' }}>
+                                <span className="pf-v5-c-spinner pf-m-sm" role="progressbar" aria-label="Re-running analysis">
+                                  <span className="pf-v5-c-spinner__clipper" />
+                                  <span className="pf-v5-c-spinner__lead-ball" />
+                                  <span className="pf-v5-c-spinner__tail-ball" />
+                                </span>
+                                <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+                                  Re-running analysis...
+                                </Content>
+                              </Flex>
+                            ) : (
+                              <div style={{ position: 'relative', paddingLeft: '20px' }}>
+                                {/* Continuous vertical connector line */}
+                                <div style={{
+                                  position: 'absolute',
+                                  left: '9px',
+                                  top: '12px',
+                                  bottom: '12px',
+                                  width: '2px',
+                                  backgroundColor: 'var(--pf-t--global--border--color--default)',
+                                }} />
+                                <Stack hasGutter>
+                                  {investigationSteps.map((step, idx) => (
+                                    <StackItem key={idx}>
+                                      <div style={{ position: 'relative' }}>
+                                        {/* Step dot */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: '-16px',
+                                          top: '4px',
+                                          width: '12px',
+                                          height: '12px',
+                                          borderRadius: '50%',
+                                          backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                          border: '2px solid var(--pf-t--global--border--color--default)',
+                                          zIndex: 1,
+                                        }} />
+                                        {/* Step content */}
+                                        <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsFlexStart' }}>
+                                          <FlexItem style={{ flex: 1 }}>
+                                            <Content component="p" style={{ fontSize: '12px', margin: 0, fontWeight: 600, color: 'var(--pf-t--global--text--color--regular)' }}>
+                                              {step.action}
+                                            </Content>
+                                            <Content component="small" style={{ fontSize: '11px', margin: '2px 0 0', color: 'var(--pf-t--global--text--color--subtle)', display: 'block' }}>
+                                              {step.component}
+                                            </Content>
+                                          </FlexItem>
+                                          <FlexItem>
+                                            <Label isCompact variant="outline" style={{ fontSize: '10px', fontFamily: 'var(--pf-t--global--font--family--mono)' }}>
+                                              {formatDuration(step.durationMs)}
+                                            </Label>
+                                          </FlexItem>
+                                        </Flex>
+                                        {/* Result and causal link */}
+                                        <Content component="small" style={{ fontSize: '11px', margin: '4px 0 0', color: 'var(--pf-t--global--text--color--subtle)', display: 'block' }}>
+                                          {step.result}{step.leadsTo && <span style={{ marginLeft: '6px', fontWeight: 600 }}>{'\u2192'} Led to Step {step.leadsTo}</span>}
+                                        </Content>
+                                      </div>
+                                    </StackItem>
+                                  ))}
+                                </Stack>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Topology View panel — inline micro-canvas */}
+                        {evidenceView === 'topology' && (
+                          <div id="evidence-panel-topology" role="tabpanel" aria-label="Topology view">
+                            <div style={{
+                              backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                              border: '1px solid var(--pf-t--global--border--color--default)',
+                              borderRadius: '6px',
+                              position: 'relative',
+                              overflow: 'hidden',
+                            }}>
+                              {/* Scrollable/pannable canvas area */}
+                              <div style={{
+                                overflow: 'auto',
+                                maxHeight: '220px',
+                                padding: '12px',
+                                scrollBehavior: 'smooth',
+                                cursor: topologyZoom > 1 ? 'grab' : 'default',
+                              }}>
+                                <svg
+                                  width={360 * topologyZoom}
+                                  height={180 * topologyZoom}
+                                  viewBox="0 0 360 180"
+                                  fill="none"
+                                  aria-hidden="true"
+                                  style={{ display: 'block', transition: 'width 0.2s ease, height 0.2s ease' }}
+                                >
+                                  <rect x="10" y="70" width="80" height="40" rx="6" stroke="var(--pf-t--global--color--status--info--default)" strokeWidth="2" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                  <text x="50" y="87" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Cluster</text>
+                                  <text x="50" y="100" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">prod-east</text>
+                                  <rect x="140" y="70" width="80" height="40" rx="6" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                  <text x="180" y="87" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Node</text>
+                                  <text x="180" y="100" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">api-server-04</text>
+                                  <rect x="270" y="20" width="80" height="36" rx="6" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                  <text x="310" y="35" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Pod</text>
+                                  <text x="310" y="47" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">nginx-7b4d6</text>
+                                  <rect x="270" y="72" width="80" height="36" rx="6" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                  <text x="310" y="87" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Service</text>
+                                  <text x="310" y="99" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">logrotate</text>
+                                  <rect x="270" y="124" width="80" height="36" rx="6" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                  <text x="310" y="139" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Pod</text>
+                                  <text x="310" y="151" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">nginx-8c5e7</text>
+                                  <line x1="90" y1="90" x2="140" y2="90" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" markerEnd="url(#arr-inline)" />
+                                  <rect x="98" y="78" width="38" height="14" rx="3" fill="var(--pf-t--global--background--color--primary--default)" stroke="var(--pf-t--global--border--color--default)" strokeWidth="0.5" />
+                                  <text x="117" y="88" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">98.4%</text>
+                                  <line x1="220" y1="82" x2="270" y2="38" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" markerEnd="url(#arr-inline)" />
+                                  <rect x="230" y="50" width="38" height="14" rx="3" fill="var(--pf-t--global--background--color--primary--default)" stroke="var(--pf-t--global--border--color--default)" strokeWidth="0.5" />
+                                  <text x="249" y="60" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">85MB/s</text>
+                                  <line x1="220" y1="90" x2="270" y2="90" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" markerEnd="url(#arr-inline)" />
+                                  <rect x="230" y="80" width="30" height="14" rx="3" fill="var(--pf-t--global--background--color--primary--default)" stroke="var(--pf-t--global--border--color--default)" strokeWidth="0.5" />
+                                  <text x="245" y="90" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">exit 1</text>
+                                  <line x1="220" y1="98" x2="270" y2="142" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" strokeDasharray="4 2" markerEnd="url(#arr-inline)" />
+                                  <rect x="228" y="112" width="36" height="14" rx="3" fill="var(--pf-t--global--background--color--primary--default)" stroke="var(--pf-t--global--border--color--default)" strokeWidth="0.5" />
+                                  <text x="246" y="122" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">at risk</text>
+                                  <defs>
+                                    <marker id="arr-inline" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+                                      <polygon points="0 0, 6 2, 0 4" fill="var(--pf-t--global--border--color--default)" />
+                                    </marker>
+                                  </defs>
+                                </svg>
+                              </div>
+                              {/* Inline zoom controls */}
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'flex-end',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                borderTop: '1px solid var(--pf-t--global--border--color--default)',
+                                backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                              }}>
+                                <Button variant="plain" size="sm" onClick={() => setTopologyZoom(z => Math.max(0.75, z - 0.25))} aria-label="Zoom out" style={{ padding: '2px 6px' }}>
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 6.25h5v1.5h-5z"/><path d="M7 1a6 6 0 104.45 10.16l3.2 3.2a.75.75 0 001.06-1.06l-3.2-3.2A6 6 0 007 1zM2.5 7a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0z"/></svg>
+                                </Button>
+                                <Content component="small" style={{ fontSize: '11px', margin: 0, minWidth: '32px', textAlign: 'center', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                  {Math.round(topologyZoom * 100)}%
+                                </Content>
+                                <Button variant="plain" size="sm" onClick={() => setTopologyZoom(z => Math.min(2.5, z + 0.25))} aria-label="Zoom in" style={{ padding: '2px 6px' }}>
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.25 4.5h1.5v2h2v1.5h-2v2h-1.5v-2h-2V6.5h2z"/><path d="M7 1a6 6 0 104.45 10.16l3.2 3.2a.75.75 0 001.06-1.06l-3.2-3.2A6 6 0 007 1zM2.5 7a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0z"/></svg>
+                                </Button>
+                                <Button variant="link" size="sm" onClick={() => setTopologyZoom(1)} style={{ fontSize: '11px', padding: '2px 6px' }}>
+                                  Reset
+                                </Button>
+                              </div>
+                            </div>
+                            {/* Accessible tree fallback for screen readers */}
+                            <div className="pf-v5-u-screen-reader" aria-label="Topology structure">
+                              <ul role="tree" aria-label="Blast radius topology">
+                                <li role="treeitem" aria-level={1}>prod-cluster-east (Cluster)
+                                  <ul role="group">
+                                    <li role="treeitem" aria-level={2}>prod-api-server-04 (Node, 98.4% disk)
+                                      <ul role="group">
+                                        <li role="treeitem" aria-level={3}>nginx-7b4d6 (Pod, 85MB/s write)</li>
+                                        <li role="treeitem" aria-level={3}>logrotate.service (Service, exit code 1)</li>
+                                        <li role="treeitem" aria-level={3}>nginx-8c5e7 (Pod, at risk)</li>
+                                      </ul>
+                                    </li>
+                                  </ul>
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Raw analysis logs (expandable) */}
+                        <div style={{ marginTop: '12px' }}>
+                          <Button
+                            variant="link"
+                            isInline
+                            onClick={() => { setShowRawLogs(!showRawLogs); if (showRawLogs) setShowAllLogs(false); }}
+                            aria-expanded={showRawLogs}
+                            aria-controls="evidence-raw-logs"
+                            style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
+                            icon={
+                              <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showRawLogs ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                <path d="M6 4l4 4-4 4z"/>
+                              </svg>
+                            }
+                          >
+                            Raw analysis logs
+                          </Button>
+                          {showRawLogs && (
+                            <div id="evidence-raw-logs" role="region" aria-label="Raw analysis logs" style={{ marginTop: '8px' }}>
+                              {(() => {
+                                const logLines = analysisLogs.split('\n');
+                                const visibleLines = showAllLogs ? logLines : logLines.slice(0, 3);
+                                const hiddenCount = logLines.length - 3;
+                                return (
+                                  <div style={{
+                                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                    border: '1px solid var(--pf-t--global--border--color--default)',
+                                    borderRadius: '4px',
+                                    padding: '10px',
+                                    maxHeight: '200px',
+                                    overflow: 'auto',
+                                  }}>
+                                    <pre style={{
+                                      margin: 0,
+                                      fontSize: '10px',
+                                      lineHeight: '1.6',
+                                      fontFamily: 'var(--pf-t--global--font--family--mono)',
+                                      color: 'var(--pf-t--global--text--color--subtle)',
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-all',
+                                    }}>
+                                      {visibleLines.join('\n')}
+                                    </pre>
+                                    {!showAllLogs && hiddenCount > 0 && (
+                                      <Button
+                                        variant="link"
+                                        isInline
+                                        onClick={() => setShowAllLogs(true)}
+                                        style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
+                                      >
+                                        Show {hiddenCount} more log lines
+                                      </Button>
+                                    )}
+                                    {showAllLogs && (
+                                      <Button
+                                        variant="link"
+                                        isInline
+                                        onClick={() => setShowAllLogs(false)}
+                                        style={{ marginTop: '6px', fontSize: '11px', paddingLeft: 0 }}
+                                      >
+                                        Show less
+                                      </Button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -961,6 +1041,111 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                 </StackItem>
                               )}
                             </Stack>
+
+                            {/* Test / Verification / Apply — inside selected plan card */}
+                            <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--pf-t--global--border--color--default)' }}>
+                              {testState === 'idle' && (
+                                <Button variant="secondary" onClick={(e) => { e.stopPropagation(); handleTestRemediation(); }}>
+                                  Test Before Applying
+                                </Button>
+                              )}
+                              {testState === 'testing' && (
+                                <Button variant="secondary" isLoading isDisabled>
+                                  Testing remediation plan
+                                </Button>
+                              )}
+                              {testState === 'tested' && (
+                                <Stack hasGutter>
+                                  <StackItem>
+                                    <div style={{
+                                      backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                      borderRadius: '8px',
+                                      padding: '12px',
+                                      border: '1px solid var(--pf-t--global--border--color--default)',
+                                    }}>
+                                      <Content component="small" style={{ fontWeight: 600, fontSize: '12px', marginBottom: '6px', display: 'block' }}>
+                                        Verification Step
+                                      </Content>
+                                      <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', lineHeight: '1.5', margin: 0 }}>
+                                        <strong>Post-Remediation Check:</strong> Track disk utilization on{' '}
+                                        <code style={{
+                                          backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                                          border: '1px solid var(--pf-t--global--border--color--default)',
+                                          borderRadius: '3px',
+                                          padding: '1px 4px',
+                                          fontSize: '11px',
+                                          fontFamily: 'var(--pf-t--global--font--family--mono)',
+                                        }}>prod-api-server-04</code>{' '}
+                                        for 5 min. Success: disk &lt; 75%, logrotate exit code 0.
+                                      </Content>
+                                      <Flex gap={{ default: 'gapMd' }} style={{ marginTop: '8px' }} alignItems={{ default: 'alignItemsCenter' }}>
+                                        <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<AiExperienceIcon />}>
+                                          Discuss with LightSpeed
+                                        </Button>
+                                        <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<DownloadIcon />}>
+                                          Download remediation guide
+                                        </Button>
+                                      </Flex>
+                                    </div>
+                                  </StackItem>
+                                  <StackItem>
+                                    {affectedClusters.length > 1 ? (
+                                      <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapNone' }}>
+                                        <FlexItem>
+                                          <Button variant="primary" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
+                                            Apply Remediation ({selectedClusters.size} of {affectedClusters.length} clusters)
+                                          </Button>
+                                        </FlexItem>
+                                        <FlexItem>
+                                          <Dropdown
+                                            isOpen={isApplyDropdownOpen}
+                                            onOpenChange={(open) => setIsApplyDropdownOpen(open)}
+                                            toggle={(toggleRef: React.Ref<MenuToggleElement>) => (
+                                              <MenuToggle
+                                                ref={toggleRef}
+                                                variant="primary"
+                                                onClick={() => setIsApplyDropdownOpen(!isApplyDropdownOpen)}
+                                                isExpanded={isApplyDropdownOpen}
+                                                style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: '8px', paddingRight: '8px' }}
+                                                aria-label="Select clusters"
+                                              >
+                                                {null}
+                                              </MenuToggle>
+                                            )}
+                                            popperProps={{ position: 'right' }}
+                                          >
+                                            <DropdownList>
+                                              <DropdownItem key="select-all" onClick={() => setSelectedClusters(new Set(affectedClusters))}>
+                                                Select all clusters
+                                              </DropdownItem>
+                                              <DropdownItem key="deselect-all" onClick={() => setSelectedClusters(new Set())}>
+                                                Deselect all
+                                              </DropdownItem>
+                                              <Divider component="li" />
+                                              {affectedClusters.map((cluster) => (
+                                                <DropdownItem key={cluster} onClick={(e) => { e.preventDefault(); toggleClusterSelection(cluster); }} style={{ padding: '8px 16px' }}>
+                                                  <Checkbox
+                                                    id={`cluster-card-${cluster}`}
+                                                    label={cluster}
+                                                    isChecked={selectedClusters.has(cluster)}
+                                                    onChange={() => toggleClusterSelection(cluster)}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                  />
+                                                </DropdownItem>
+                                              ))}
+                                            </DropdownList>
+                                          </Dropdown>
+                                        </FlexItem>
+                                      </Flex>
+                                    ) : (
+                                      <Button variant="primary">
+                                        Apply Remediation
+                                      </Button>
+                                    )}
+                                  </StackItem>
+                                </Stack>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -974,120 +1159,19 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
         </Stack>
       </div>
 
-      {/* Fixed Footer - Primary Actions */}
+      {/* Fixed Footer - Disclaimer */}
       <div style={{
-        padding: '16px',
+        padding: '12px 16px',
         borderTop: '1px solid var(--pf-t--global--border--color--default)',
         flexShrink: 0,
         backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
       }}>
         {!rootCauseAcknowledged && (
-          <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: 0 }}>
+          <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: '0 0 8px 0', display: 'block' }}>
             {analysisComplete ? 'Acknowledge the root cause analysis to proceed with remediation.' : 'Analysis in progress...'}
           </Content>
         )}
-        {rootCauseAcknowledged && testState === 'idle' && (
-          <Button variant="primary" onClick={handleTestRemediation}>
-            Test Before Applying
-          </Button>
-        )}
-        {rootCauseAcknowledged && testState === 'testing' && (
-          <Button variant="primary" isLoading isDisabled>
-            Testing remediation plan
-          </Button>
-        )}
-        {rootCauseAcknowledged && testState === 'tested' && (
-          <Stack hasGutter>
-            <StackItem>
-              <div style={{
-                backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                borderRadius: '8px',
-                padding: '12px',
-                border: '1px solid var(--pf-t--global--border--color--default)',
-              }}>
-                <Content component="small" style={{ fontWeight: 600, fontSize: '12px', marginBottom: '6px', display: 'block' }}>
-                  Verification Step
-                </Content>
-                <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', lineHeight: '1.5', margin: 0 }}>
-                  <strong>Post-Remediation Check:</strong> Track disk utilization on{' '}
-                  <code style={{
-                    backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
-                    border: '1px solid var(--pf-t--global--border--color--default)',
-                    borderRadius: '3px',
-                    padding: '1px 4px',
-                    fontSize: '11px',
-                    fontFamily: 'var(--pf-t--global--font--family--mono)',
-                  }}>prod-api-server-04</code>{' '}
-                  for 5 min. Success: disk &lt; 75%, logrotate exit code 0.
-                </Content>
-                <Flex gap={{ default: 'gapMd' }} style={{ marginTop: '8px' }} alignItems={{ default: 'alignItemsCenter' }}>
-                  <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<AiExperienceIcon />}>
-                    Discuss with LightSpeed
-                  </Button>
-                  <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<DownloadIcon />}>
-                    Download remediation guide
-                  </Button>
-                </Flex>
-              </div>
-            </StackItem>
-            <StackItem>
-              {affectedClusters.length > 1 ? (
-                <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapNone' }}>
-                  <FlexItem>
-                    <Button variant="primary" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
-                      Apply Remediation ({selectedClusters.size} of {affectedClusters.length} clusters)
-                    </Button>
-                  </FlexItem>
-                  <FlexItem>
-                    <Dropdown
-                      isOpen={isApplyDropdownOpen}
-                      onOpenChange={(open) => setIsApplyDropdownOpen(open)}
-                      toggle={(toggleRef: React.Ref<MenuToggleElement>) => (
-                        <MenuToggle
-                          ref={toggleRef}
-                          variant="primary"
-                          onClick={() => setIsApplyDropdownOpen(!isApplyDropdownOpen)}
-                          isExpanded={isApplyDropdownOpen}
-                          style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: '8px', paddingRight: '8px' }}
-                          aria-label="Select clusters"
-                        >
-                          {null}
-                        </MenuToggle>
-                      )}
-                      popperProps={{ position: 'right' }}
-                    >
-                      <DropdownList>
-                        <DropdownItem key="select-all" onClick={() => setSelectedClusters(new Set(affectedClusters))}>
-                          Select all clusters
-                        </DropdownItem>
-                        <DropdownItem key="deselect-all" onClick={() => setSelectedClusters(new Set())}>
-                          Deselect all
-                        </DropdownItem>
-                        <Divider component="li" />
-                        {affectedClusters.map((cluster) => (
-                          <DropdownItem key={cluster} onClick={(e) => { e.preventDefault(); toggleClusterSelection(cluster); }} style={{ padding: '8px 16px' }}>
-                            <Checkbox
-                              id={`cluster-footer-${cluster}`}
-                              label={cluster}
-                              isChecked={selectedClusters.has(cluster)}
-                              onChange={() => toggleClusterSelection(cluster)}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          </DropdownItem>
-                        ))}
-                      </DropdownList>
-                    </Dropdown>
-                  </FlexItem>
-                </Flex>
-              ) : (
-                <Button variant="primary">
-                  Apply Remediation
-                </Button>
-              )}
-            </StackItem>
-          </Stack>
-        )}
-        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginTop: '12px' }}>
+        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
           <Icon size="sm" status="info"><InfoCircleIcon /></Icon>
           <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '11px', margin: 0 }}>
             Always review AI-generated content prior to use.
@@ -1095,128 +1179,6 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
         </Flex>
       </div>
 
-      {/* Topology fullscreen overlay */}
-      {isTopologyFullscreen && (
-        <div
-          role="dialog"
-          aria-label="Signal topology full view"
-          aria-modal="true"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 9999,
-            backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {/* Overlay header */}
-          <div style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid var(--pf-t--global--border--color--default)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexShrink: 0,
-          }}>
-            <Title headingLevel="h3" size="md">Signal Topology</Title>
-            <Button variant="plain" aria-label="Close topology view" onClick={() => setIsTopologyFullscreen(false)}>
-              <TimesIcon />
-            </Button>
-          </div>
-
-          {/* Topology content */}
-          <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-            <svg
-              width={600 * topologyZoom}
-              height={350 * topologyZoom}
-              viewBox="0 0 400 230"
-              fill="none"
-              style={{ transition: 'width 0.2s, height 0.2s' }}
-              aria-label="Full topology graph: Deployment connected to Event, Pod, Logs, Metric, Network, Node, and Service resources"
-            >
-              {/* Deployment node (root) */}
-              <circle cx="60" cy="30" r="22" stroke="var(--pf-t--global--color--status--info--default)" strokeWidth="2.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="60" y="27" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Deploy</text>
-              <text x="60" y="37" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">(1)</text>
-              <text x="60" y="62" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="500">Deployment (1)</text>
-
-              {/* Row 1 nodes */}
-              <circle cx="40" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="40" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Event</text>
-              <text x="40" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Event (2)</text>
-
-              <circle cx="115" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="115" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Pod</text>
-              <text x="115" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Pod (1)</text>
-
-              <circle cx="190" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="190" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Logs</text>
-              <text x="190" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Logs (61)</text>
-
-              <circle cx="265" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="265" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Metric</text>
-              <text x="265" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Metric (17)</text>
-
-              <circle cx="345" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="345" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Network</text>
-              <text x="345" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Network (15)</text>
-
-              {/* Row 2 nodes */}
-              <circle cx="115" cy="195" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="115" y="198" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Node</text>
-              <text x="115" y="220" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Node (1)</text>
-
-              <circle cx="210" cy="195" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
-              <text x="210" y="198" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Service</text>
-              <text x="210" y="220" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Service (1)</text>
-
-              {/* Edges from Deployment */}
-              <line x1="60" y1="52" x2="40" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
-              <line x1="60" y1="52" x2="115" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
-              <line x1="60" y1="52" x2="190" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
-              <line x1="60" y1="52" x2="265" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
-              <line x1="60" y1="52" x2="345" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
-              {/* Edges from Pod */}
-              <line x1="115" y1="138" x2="115" y2="177" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
-              <line x1="115" y1="138" x2="210" y2="177" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
-
-              <defs>
-                <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-                  <polygon points="0 0, 6 2, 0 4" fill="var(--pf-t--global--border--color--default)" />
-                </marker>
-              </defs>
-            </svg>
-          </div>
-
-          {/* Zoom controls */}
-          <div style={{
-            padding: '12px 16px',
-            borderTop: '1px solid var(--pf-t--global--border--color--default)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            flexShrink: 0,
-          }}>
-            <Button variant="secondary" size="sm" onClick={() => setTopologyZoom(z => Math.max(0.5, z - 0.25))} aria-label="Zoom out">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7 1a6 6 0 104.45 10.16l3.2 3.2a.75.75 0 001.06-1.06l-3.2-3.2A6 6 0 007 1zM2.5 7a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0z"/><path d="M4.5 6.25h5v1.5h-5z"/></svg>
-            </Button>
-            <Content component="small" style={{ fontSize: '12px', margin: 0, minWidth: '40px', textAlign: 'center' }}>
-              {Math.round(topologyZoom * 100)}%
-            </Content>
-            <Button variant="secondary" size="sm" onClick={() => setTopologyZoom(z => Math.min(2, z + 0.25))} aria-label="Zoom in">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7 1a6 6 0 104.45 10.16l3.2 3.2a.75.75 0 001.06-1.06l-3.2-3.2A6 6 0 007 1zM2.5 7a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0z"/><path d="M6.25 4.5h1.5v2h2v1.5h-2v2h-1.5v-2h-2V6.5h2z"/></svg>
-            </Button>
-            <Button variant="link" size="sm" onClick={() => setTopologyZoom(1)}>
-              Reset
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
