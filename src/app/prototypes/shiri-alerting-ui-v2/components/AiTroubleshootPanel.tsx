@@ -190,6 +190,9 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
   const [selectedPlanIdx, setSelectedPlanIdx] = React.useState(0);
   const [showRawCommands, setShowRawCommands] = React.useState(false);
   const [showRbacRoles, setShowRbacRoles] = React.useState(false);
+  const [isTopologyVisible, setIsTopologyVisible] = React.useState(false);
+  const [isTopologyFullscreen, setIsTopologyFullscreen] = React.useState(false);
+  const [topologyZoom, setTopologyZoom] = React.useState(1);
   const [analysisComplete, setAnalysisComplete] = React.useState(false);
 
   const reasoningChain = analysisType === 'smart' ? MOCK_REASONING_CHAIN_SMART : MOCK_REASONING_CHAIN_FAST;
@@ -641,6 +644,95 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                               </div>
                             )}
                           </StackItem>
+
+                          {/* Signal topology (sub-toggle) */}
+                          <StackItem>
+                            <Button
+                              variant="link"
+                              isInline
+                              onClick={() => setIsTopologyVisible(!isTopologyVisible)}
+                              aria-expanded={isTopologyVisible}
+                              aria-controls="evidence-topology"
+                              style={{ fontSize: '12px', paddingLeft: 0, fontWeight: 600 }}
+                              icon={
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isTopologyVisible ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                  <path d="M6 4l4 4-4 4z"/>
+                                </svg>
+                              }
+                            >
+                              Signal topology
+                            </Button>
+                            {isTopologyVisible && (
+                              <div id="evidence-topology" role="region" aria-label="Signal topology diagram" style={{ marginTop: '8px' }}>
+                                <div
+                                  onClick={() => { setIsTopologyFullscreen(true); setTopologyZoom(1); }}
+                                  style={{
+                                    backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+                                    border: '1px solid var(--pf-t--global--border--color--default)',
+                                    borderRadius: '6px',
+                                    padding: '12px',
+                                    cursor: 'pointer',
+                                    position: 'relative',
+                                  }}
+                                  title="Click to view full screen"
+                                >
+                                  {/* Topology preview (inline SVG diagram) */}
+                                  <svg width="100%" height="160" viewBox="0 0 400 200" fill="none" aria-label="Topology graph showing Deployment connected to Event, Pod, Logs, Metric, Network, Node, and Service resources">
+                                    {/* Deployment node (root) */}
+                                    <circle cx="60" cy="30" r="20" stroke="var(--pf-t--global--color--status--info--default)" strokeWidth="2" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="60" y="34" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Deploy</text>
+                                    <text x="60" y="58" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Deployment (1)</text>
+
+                                    {/* Row 1 nodes */}
+                                    <circle cx="40" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="40" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Event</text>
+                                    <text x="40" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Event (2)</text>
+
+                                    <circle cx="110" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="110" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Pod</text>
+                                    <text x="110" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Pod (1)</text>
+
+                                    <circle cx="180" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="180" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Logs</text>
+                                    <text x="180" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Logs (61)</text>
+
+                                    <circle cx="250" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="250" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Metric</text>
+                                    <text x="250" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Metric (17)</text>
+
+                                    <circle cx="330" cy="110" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="330" y="113" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Network</text>
+                                    <text x="330" y="134" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Network (15)</text>
+
+                                    {/* Row 2 nodes */}
+                                    <circle cx="110" cy="175" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="110" y="178" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Node</text>
+                                    <text x="110" y="198" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Node (1)</text>
+
+                                    <circle cx="200" cy="175" r="16" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+                                    <text x="200" y="178" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Service</text>
+                                    <text x="200" y="198" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">Service (1)</text>
+
+                                    {/* Edges from Deployment */}
+                                    <line x1="60" y1="50" x2="40" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
+                                    <line x1="60" y1="50" x2="110" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
+                                    <line x1="60" y1="50" x2="180" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
+                                    <line x1="60" y1="50" x2="250" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
+                                    <line x1="60" y1="50" x2="330" y2="94" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
+                                    {/* Edges from Pod */}
+                                    <line x1="110" y1="126" x2="110" y2="159" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
+                                    <line x1="110" y1="126" x2="200" y2="159" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" />
+                                  </svg>
+                                  {/* Expand hint */}
+                                  <div style={{ position: 'absolute', bottom: '8px', right: '8px', opacity: 0.6 }}>
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="var(--pf-t--global--text--color--subtle)">
+                                      <path d="M2 9v5h5v-1H4.4l3.3-3.3-.7-.7L3.7 12.3V10H2zM14 7V2H9v1h2.6l-3.3 3.3.7.7L12.3 3.7V6H14z"/>
+                                    </svg>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </StackItem>
                         </Stack>
                       </div>
                     )}
@@ -1002,6 +1094,129 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
           </Content>
         </Flex>
       </div>
+
+      {/* Topology fullscreen overlay */}
+      {isTopologyFullscreen && (
+        <div
+          role="dialog"
+          aria-label="Signal topology full view"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9999,
+            backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {/* Overlay header */}
+          <div style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--pf-t--global--border--color--default)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexShrink: 0,
+          }}>
+            <Title headingLevel="h3" size="md">Signal Topology</Title>
+            <Button variant="plain" aria-label="Close topology view" onClick={() => setIsTopologyFullscreen(false)}>
+              <TimesIcon />
+            </Button>
+          </div>
+
+          {/* Topology content */}
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+            <svg
+              width={600 * topologyZoom}
+              height={350 * topologyZoom}
+              viewBox="0 0 400 230"
+              fill="none"
+              style={{ transition: 'width 0.2s, height 0.2s' }}
+              aria-label="Full topology graph: Deployment connected to Event, Pod, Logs, Metric, Network, Node, and Service resources"
+            >
+              {/* Deployment node (root) */}
+              <circle cx="60" cy="30" r="22" stroke="var(--pf-t--global--color--status--info--default)" strokeWidth="2.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="60" y="27" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="600">Deploy</text>
+              <text x="60" y="37" textAnchor="middle" fontSize="6" fill="var(--pf-t--global--text--color--subtle)">(1)</text>
+              <text x="60" y="62" textAnchor="middle" fontSize="8" fill="var(--pf-t--global--text--color--regular)" fontWeight="500">Deployment (1)</text>
+
+              {/* Row 1 nodes */}
+              <circle cx="40" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="40" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Event</text>
+              <text x="40" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Event (2)</text>
+
+              <circle cx="115" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="115" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Pod</text>
+              <text x="115" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Pod (1)</text>
+
+              <circle cx="190" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="190" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Logs</text>
+              <text x="190" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Logs (61)</text>
+
+              <circle cx="265" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="265" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Metric</text>
+              <text x="265" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Metric (17)</text>
+
+              <circle cx="345" cy="120" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="345" y="123" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Network</text>
+              <text x="345" y="146" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Network (15)</text>
+
+              {/* Row 2 nodes */}
+              <circle cx="115" cy="195" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="115" y="198" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Node</text>
+              <text x="115" y="220" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Node (1)</text>
+
+              <circle cx="210" cy="195" r="18" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1.5" fill="var(--pf-t--global--background--color--secondary--default)" />
+              <text x="210" y="198" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--regular)">Service</text>
+              <text x="210" y="220" textAnchor="middle" fontSize="7" fill="var(--pf-t--global--text--color--subtle)">Service (1)</text>
+
+              {/* Edges from Deployment */}
+              <line x1="60" y1="52" x2="40" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
+              <line x1="60" y1="52" x2="115" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
+              <line x1="60" y1="52" x2="190" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
+              <line x1="60" y1="52" x2="265" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
+              <line x1="60" y1="52" x2="345" y2="102" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
+              {/* Edges from Pod */}
+              <line x1="115" y1="138" x2="115" y2="177" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
+              <line x1="115" y1="138" x2="210" y2="177" stroke="var(--pf-t--global--border--color--default)" strokeWidth="1" markerEnd="url(#arrowhead)" />
+
+              <defs>
+                <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+                  <polygon points="0 0, 6 2, 0 4" fill="var(--pf-t--global--border--color--default)" />
+                </marker>
+              </defs>
+            </svg>
+          </div>
+
+          {/* Zoom controls */}
+          <div style={{
+            padding: '12px 16px',
+            borderTop: '1px solid var(--pf-t--global--border--color--default)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            flexShrink: 0,
+          }}>
+            <Button variant="secondary" size="sm" onClick={() => setTopologyZoom(z => Math.max(0.5, z - 0.25))} aria-label="Zoom out">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7 1a6 6 0 104.45 10.16l3.2 3.2a.75.75 0 001.06-1.06l-3.2-3.2A6 6 0 007 1zM2.5 7a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0z"/><path d="M4.5 6.25h5v1.5h-5z"/></svg>
+            </Button>
+            <Content component="small" style={{ fontSize: '12px', margin: 0, minWidth: '40px', textAlign: 'center' }}>
+              {Math.round(topologyZoom * 100)}%
+            </Content>
+            <Button variant="secondary" size="sm" onClick={() => setTopologyZoom(z => Math.min(2, z + 0.25))} aria-label="Zoom in">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7 1a6 6 0 104.45 10.16l3.2 3.2a.75.75 0 001.06-1.06l-3.2-3.2A6 6 0 007 1zM2.5 7a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0z"/><path d="M6.25 4.5h1.5v2h2v1.5h-2v2h-1.5v-2h-2V6.5h2z"/></svg>
+            </Button>
+            <Button variant="link" size="sm" onClick={() => setTopologyZoom(1)}>
+              Reset
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
