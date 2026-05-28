@@ -142,6 +142,8 @@ interface RemediationPlan {
   requiresRbac: boolean;
   rbacPermissions?: RbacPermission[];
   steps: { parts: InlinePart[] }[];
+  createdAt: string;
+  createdBy: string;
 }
 
 const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
@@ -151,6 +153,8 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
     risk: 'Low',
     reversible: true,
     requiresRbac: false,
+    createdAt: '2 hours ago',
+    createdBy: 'Lightspeed AI Agent',
     steps: [
       { parts: ['Safely archive and gzip ', { code: '/var/log/nginx/access.log' }, ' to a backup block storage mount (', { code: '/mnt/backup' }, ').'] },
       { parts: ['Correct the configuration permissions file at ', { code: '/etc/logrotate.d/nginx' }, '.'] },
@@ -163,6 +167,8 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
     risk: 'Medium',
     reversible: true,
     requiresRbac: true,
+    createdAt: '1 hour ago',
+    createdBy: 'Lightspeed AI Agent',
     rbacPermissions: [
       {
         namespace: 'production',
@@ -184,6 +190,8 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
     risk: 'High',
     reversible: false,
     requiresRbac: true,
+    createdAt: '45 min ago',
+    createdBy: 'SRE Runbook Engine',
     rbacPermissions: [
       {
         namespace: 'production',
@@ -888,9 +896,16 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                         {/* Show details only for selected plan */}
                         {selectedPlanIdx === planIdx && (
                           <div style={{ marginTop: '8px', marginLeft: '24px' }}>
-                            <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: '0 0 10px 0', lineHeight: '1.4' }}>
+                            <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: '0 0 8px 0', lineHeight: '1.4' }}>
                               {plan.description}
                             </Content>
+                            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginBottom: '10px', fontSize: '11px', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                              <span>Created {plan.createdAt} by {plan.createdBy}</span>
+                              <span style={{ color: 'var(--pf-t--global--border--color--default)' }}>|</span>
+                              <Button variant="link" isInline style={{ fontSize: '11px', padding: 0 }}>
+                                View plan details in AI hub
+                              </Button>
+                            </Flex>
                             <Flex gap={{ default: 'gapXs' }} flexWrap={{ default: 'wrap' }} style={{ marginBottom: '12px' }}>
                               <Label isCompact variant="outline">
                                 Risk: {plan.risk}
