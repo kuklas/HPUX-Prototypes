@@ -220,6 +220,7 @@ import { DrillDownContent } from '../components/DrillDownContent';
 import { FleetOverviewTab } from '../components/FleetOverviewTab';
 import { FleetOverviewToolbar } from '../components/FleetOverviewToolbar';
 import { AlertsTabFleetOverviewContent } from '../components/AlertsTabFleetOverviewContent';
+import { NotificationDrawerPanel } from '../components/NotificationDrawerPanel';
 import { mockAlertRules, mockTrendData, mockClusters } from '../data/mockData';
 
 
@@ -531,6 +532,22 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
   const [alertDetailDrawerTab, setAlertDetailDrawerTab] = React.useState<number>(0);
   const [openDrawerWithAiTroubleshoot, setOpenDrawerWithAiTroubleshoot] = React.useState(false);
   
+  // Notification drawer state
+  const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = React.useState(false);
+
+  // Hook into the masthead bell icon to toggle the notification drawer
+  React.useEffect(() => {
+    const bellButton = document.querySelector('button[aria-label="Notifications"]');
+    if (!bellButton) return;
+    const handler = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsNotificationDrawerOpen(prev => !prev);
+    };
+    bellButton.addEventListener('click', handler, true);
+    return () => bellButton.removeEventListener('click', handler, true);
+  }, []);
+
   // Alert Rule Drawer state
   const [isAlertRuleDrawerOpen, setIsAlertRuleDrawerOpen] = React.useState(false);
   const [selectedAlertRule, setSelectedAlertRule] = React.useState<AlertRule | null>(null);
@@ -1274,6 +1291,39 @@ const MultiClusterAlertingDashboard: React.FunctionComponent = () => {
   // ========================================
   return (
     <div className="alerting-page-container" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 76px)', overflow: 'hidden', position: 'relative', padding: '0px' }}>
+      {/* Notification Drawer - positioned overlay */}
+      {isNotificationDrawerOpen && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          width: '400px',
+          height: '100%',
+          zIndex: 500,
+          boxShadow: '-4px 0 12px rgba(0,0,0,0.12)',
+          backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+          borderLeft: '1px solid var(--pf-t--global--border--color--default)',
+        }}>
+          <NotificationDrawerPanel
+            alerts={allAlerts}
+            onClose={() => setIsNotificationDrawerOpen(false)}
+            onAlertClick={(alert) => {
+              setIsNotificationDrawerOpen(false);
+              setMainPageTab('alerts');
+              setSelectedAlertDetail(alert);
+              setIsDrawerExpanded(true);
+              setOpenDrawerWithAiTroubleshoot(false);
+            }}
+            onInvestigateWithAi={(alert) => {
+              setIsNotificationDrawerOpen(false);
+              setMainPageTab('alerts');
+              setSelectedAlertDetail(alert);
+              setOpenDrawerWithAiTroubleshoot(true);
+              setIsDrawerExpanded(true);
+            }}
+          />
+        </div>
+      )}
       {isDevBuild && showAlertingDevHint && (
         <div style={{ padding: '8px 16px 0', flexShrink: 0 }}>
           <PfAlert
