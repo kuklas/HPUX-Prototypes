@@ -1219,9 +1219,9 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                                 {null}
                                               </MenuToggle>
                                             )}
-                                            popperProps={{ position: 'right' }}
+                                            popperProps={{ appendTo: 'inline', position: 'end', direction: 'up' }}
                                           >
-                                            <DropdownList>
+                                            <DropdownList style={{ maxHeight: '240px', overflowY: 'auto' }}>
                                               <DropdownItem key="select-all" onClick={() => setSelectedClusters(new Set(affectedClusters))}>
                                                 Select all eligible clusters
                                               </DropdownItem>
