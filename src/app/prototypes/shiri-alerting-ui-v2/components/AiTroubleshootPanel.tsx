@@ -211,6 +211,8 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
 
 export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert, onBack, onClose }) => {
   const [isKebabOpen, setIsKebabOpen] = React.useState(false);
+  const [analysisApproved, setAnalysisApproved] = React.useState(false);
+  const [preApprovalType, setPreApprovalType] = React.useState<'smart' | 'fast'>('smart');
   const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(false);
   const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(false);
   const [rootCauseAcknowledged, setRootCauseAcknowledged] = React.useState(false);
@@ -231,14 +233,20 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
   const investigationSteps = analysisType === 'smart' ? MOCK_STEPS_SMART : MOCK_STEPS_FAST;
   const analysisLogs = analysisType === 'smart' ? MOCK_ANALYSIS_LOGS_SMART : MOCK_ANALYSIS_LOGS_FAST;
 
+  const handleApproveAnalysis = () => {
+    setAnalysisType(preApprovalType);
+    setAnalysisApproved(true);
+  };
+
   // Phase 2: Auto-reveal root cause after reasoning chain "completes"
   React.useEffect(() => {
+    if (!analysisApproved) return;
     const timer = setTimeout(() => {
       setAnalysisComplete(true);
       setIsRootCauseExpanded(true);
     }, 2500);
     return () => clearTimeout(timer);
-  }, []);
+  }, [analysisApproved]);
 
   const recommendedPlanIdx = React.useMemo(() => {
     const riskWeight = { Low: 1, Medium: 2, High: 3 };
@@ -277,6 +285,11 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
     if (!alert.clusterName) return [];
     return alert.clusterName.split(',').map(c => c.trim()).filter(Boolean);
   }, [alert.clusterName]);
+
+  const ineligibleClusters = React.useMemo<{ name: string; reason: string }[]>(() => [
+    { name: 'prod-cluster-us-west-02', reason: 'Cluster is in maintenance mode until Jun 5' },
+    { name: 'prod-cluster-eu-central-01', reason: 'Insufficient RBAC permissions for this cluster' },
+  ], []);
 
   const [selectedClusters, setSelectedClusters] = React.useState<Set<string>>(new Set(affectedClusters));
 
@@ -364,7 +377,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
             </Content>
           </StackItem>
 
-          {/* AI Insight */}
+          {/* AI Insight — always visible */}
           <StackItem>
             <div style={{
               backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
@@ -373,11 +386,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
               border: '1px solid var(--pf-t--global--border--color--default)',
             }}>
               <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginBottom: '8px' }}>
-                <Icon size="sm" status="info">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <path d="M8 1a5 5 0 00-2 9.58V12a1 1 0 001 1h2a1 1 0 001-1v-1.42A5 5 0 008 1zm1 13H7v1h2v-1z"/>
-                  </svg>
-                </Icon>
+                <AiExperienceIcon size={16} />
                 <Content component="small" style={{ fontWeight: 600, fontSize: '13px' }}>AI Insights</Content>
               </Flex>
               <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.5' }}>
@@ -386,8 +395,91 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
             </div>
           </StackItem>
 
+          {/* Pre-analysis approval step */}
+          {!analysisApproved && (
+            <StackItem>
+              <div style={{
+                backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                borderRadius: '8px',
+                padding: '16px',
+                border: '1px solid var(--pf-t--global--border--color--default)',
+              }}>
+                <Content component="small" style={{ fontWeight: 600, fontSize: '13px', marginBottom: '12px', display: 'block' }}>
+                  Select analysis method
+                </Content>
+                <Stack hasGutter>
+                  <StackItem>
+                    <div
+                      onClick={() => setPreApprovalType('smart')}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '6px',
+                        border: preApprovalType === 'smart'
+                          ? '2px solid var(--pf-t--global--color--status--info--default)'
+                          : '1px solid var(--pf-t--global--border--color--default)',
+                        backgroundColor: preApprovalType === 'smart'
+                          ? 'var(--pf-t--global--background--color--primary--default)'
+                          : 'transparent',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+                        <input type="radio" name="analysis-type-approval" checked={preApprovalType === 'smart'} onChange={() => setPreApprovalType('smart')} style={{ margin: 0 }} />
+                        <FlexItem style={{ flex: 1 }}>
+                          <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart analysis</Content>
+                          <Content component="small" style={{ fontSize: '12px', margin: '2px 0 0', color: 'var(--pf-t--global--text--color--subtle)', display: 'block' }}>
+                            Deep multi-signal correlation across metrics, logs, and events. Higher confidence results.
+                          </Content>
+                        </FlexItem>
+                        <FlexItem>
+                          <Label isCompact variant="outline" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)', fontSize: '11px' }}>
+                            ~2,400 tokens
+                          </Label>
+                        </FlexItem>
+                      </Flex>
+                    </div>
+                  </StackItem>
+                  <StackItem>
+                    <div
+                      onClick={() => setPreApprovalType('fast')}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '6px',
+                        border: preApprovalType === 'fast'
+                          ? '2px solid var(--pf-t--global--color--status--info--default)'
+                          : '1px solid var(--pf-t--global--border--color--default)',
+                        backgroundColor: preApprovalType === 'fast'
+                          ? 'var(--pf-t--global--background--color--primary--default)'
+                          : 'transparent',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+                        <input type="radio" name="analysis-type-approval" checked={preApprovalType === 'fast'} onChange={() => setPreApprovalType('fast')} style={{ margin: 0 }} />
+                        <FlexItem style={{ flex: 1 }}>
+                          <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast analysis</Content>
+                          <Content component="small" style={{ fontSize: '12px', margin: '2px 0 0', color: 'var(--pf-t--global--text--color--subtle)', display: 'block' }}>
+                            Quick pattern-matching against known alert signatures. Lower token usage.
+                          </Content>
+                        </FlexItem>
+                        <FlexItem>
+                          <Label isCompact variant="outline" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)', fontSize: '11px' }}>
+                            ~800 tokens
+                          </Label>
+                        </FlexItem>
+                      </Flex>
+                    </div>
+                  </StackItem>
+                </Stack>
+                <Button variant="primary" style={{ marginTop: '16px' }} onClick={handleApproveAnalysis}>
+                  Run {preApprovalType === 'smart' ? 'smart' : 'fast'} analysis
+                </Button>
+              </div>
+            </StackItem>
+          )}
+
           {/* Analysis in progress indicator */}
-          {!analysisComplete && (
+          {analysisApproved && !analysisComplete && (
             <StackItem>
               <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '12px 0' }}>
                 <span className="pf-v5-c-spinner pf-m-md" role="progressbar" aria-label="Analysis in progress">
@@ -1108,7 +1200,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                       <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapNone' }}>
                                         <FlexItem>
                                           <Button variant="primary" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
-                                            Apply Remediation ({selectedClusters.size} of {affectedClusters.length} clusters)
+                                            Apply Remediation ({selectedClusters.size} of {affectedClusters.length + ineligibleClusters.length} clusters)
                                           </Button>
                                         </FlexItem>
                                         <FlexItem>
@@ -1131,7 +1223,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                           >
                                             <DropdownList>
                                               <DropdownItem key="select-all" onClick={() => setSelectedClusters(new Set(affectedClusters))}>
-                                                Select all clusters
+                                                Select all eligible clusters
                                               </DropdownItem>
                                               <DropdownItem key="deselect-all" onClick={() => setSelectedClusters(new Set())}>
                                                 Deselect all
@@ -1145,6 +1237,22 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                                     isChecked={selectedClusters.has(cluster)}
                                                     onChange={() => toggleClusterSelection(cluster)}
                                                     onClick={(e) => e.stopPropagation()}
+                                                  />
+                                                </DropdownItem>
+                                              ))}
+                                              {ineligibleClusters.map((cluster) => (
+                                                <DropdownItem
+                                                  key={cluster.name}
+                                                  isDisabled
+                                                  style={{ padding: '8px 16px' }}
+                                                >
+                                                  <Checkbox
+                                                    id={`cluster-card-disabled-${cluster.name}`}
+                                                    label={cluster.name}
+                                                    isChecked={false}
+                                                    isDisabled
+                                                    onChange={() => {}}
+                                                    body={<span style={{ fontSize: '11px', color: 'var(--pf-t--global--text--color--subtle)', display: 'block', marginTop: '2px' }}>{cluster.reason}</span>}
                                                   />
                                                 </DropdownItem>
                                               ))}
