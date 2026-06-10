@@ -17,6 +17,7 @@ import {
   ExpandableSection,
   Checkbox,
   Divider,
+  Tooltip,
 } from '@patternfly/react-core';
 import {
   ArrowLeftIcon,
@@ -211,13 +212,16 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
 
 export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert, onBack, onClose }) => {
   const [isKebabOpen, setIsKebabOpen] = React.useState(false);
-  const [analysisApproved, setAnalysisApproved] = React.useState(false);
-  const [preApprovalType, setPreApprovalType] = React.useState<'smart' | 'fast'>('smart');
+  const [analysisApproved, setAnalysisApproved] = React.useState(true);
+  const [analysisRunCount, setAnalysisRunCount] = React.useState(0);
+  const [preApprovalType, setPreApprovalType] = React.useState<'smart' | 'fast' | 'precision'>('fast');
+  const [showAgentSelection, setShowAgentSelection] = React.useState(false);
   const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(false);
   const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(false);
   const [rootCauseAcknowledged, setRootCauseAcknowledged] = React.useState(false);
   const [testState, setTestState] = React.useState<'idle' | 'testing' | 'tested'>('idle');
-  const [analysisType, setAnalysisType] = React.useState<'smart' | 'fast'>('smart');
+  const [applyState, setApplyState] = React.useState<'idle' | 'applying' | 'applied'>('idle');
+  const [analysisType, setAnalysisType] = React.useState<'smart' | 'fast' | 'precision'>('fast');
   const [isAnalysisDropdownOpen, setIsAnalysisDropdownOpen] = React.useState(false);
   const [isAnalysisRunning, setIsAnalysisRunning] = React.useState(false);
   const [showEvidence, setShowEvidence] = React.useState(false);
@@ -229,24 +233,56 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
   const [showRbacRoles, setShowRbacRoles] = React.useState(false);
   const [topologyZoom, setTopologyZoom] = React.useState(1);
   const [analysisComplete, setAnalysisComplete] = React.useState(false);
+  const [showPostMortem, setShowPostMortem] = React.useState(false);
+  const [timelineCollapsing, setTimelineCollapsing] = React.useState(false);
+  const [evidenceHighlight, setEvidenceHighlight] = React.useState(false);
+  const [showInlineChat, setShowInlineChat] = React.useState(false);
+  const [chatMessages, setChatMessages] = React.useState<{ role: 'user' | 'assistant'; text: string }[]>([
+    { role: 'assistant', text: 'I can help you with this remediation plan. What would you like to discuss?' },
+  ]);
+  const [chatInput, setChatInput] = React.useState('');
 
-  const investigationSteps = analysisType === 'smart' ? MOCK_STEPS_SMART : MOCK_STEPS_FAST;
-  const analysisLogs = analysisType === 'smart' ? MOCK_ANALYSIS_LOGS_SMART : MOCK_ANALYSIS_LOGS_FAST;
+  const investigationSteps = analysisType === 'fast' ? MOCK_STEPS_FAST : MOCK_STEPS_SMART;
+  const analysisLogs = analysisType === 'fast' ? MOCK_ANALYSIS_LOGS_FAST : MOCK_ANALYSIS_LOGS_SMART;
+
+  const agentDisplayName = (type: string) => {
+    switch (type) {
+      case 'smart': return 'Standard optimization';
+      case 'precision': return 'Deep system verification';
+      default: return 'Fast scan';
+    }
+  };
 
   const handleApproveAnalysis = () => {
     setAnalysisType(preApprovalType);
     setAnalysisApproved(true);
+    setShowAgentSelection(false);
+    setAnalysisComplete(false);
+    setTimelineCollapsing(false);
+    setEvidenceHighlight(false);
+    setIsRootCauseExpanded(false);
+    setRootCauseAcknowledged(false);
+    setShowEvidence(false);
+    setAnalysisRunCount(c => c + 1);
   };
 
   // Phase 2: Auto-reveal root cause after reasoning chain "completes"
   React.useEffect(() => {
     if (!analysisApproved) return;
-    const timer = setTimeout(() => {
+    const collapseTimer = setTimeout(() => {
+      setTimelineCollapsing(true);
+    }, 2000);
+    const completeTimer = setTimeout(() => {
       setAnalysisComplete(true);
       setIsRootCauseExpanded(true);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [analysisApproved]);
+      setTimelineCollapsing(false);
+      setEvidenceHighlight(true);
+    }, 2600);
+    const highlightTimer = setTimeout(() => {
+      setEvidenceHighlight(false);
+    }, 4000);
+    return () => { clearTimeout(collapseTimer); clearTimeout(completeTimer); clearTimeout(highlightTimer); };
+  }, [analysisApproved, analysisRunCount]);
 
   const recommendedPlanIdx = React.useMemo(() => {
     const riskWeight = { Low: 1, Medium: 2, High: 3 };
@@ -260,7 +296,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
       riskWeight[plan.risk] <= riskWeight[MOCK_REMEDIATION_PLANS[best].risk] ? idx : best, 0);
   }, [alert.severity]);
 
-  const handleAnalysisTypeChange = (type: 'smart' | 'fast') => {
+  const handleAnalysisTypeChange = (type: 'smart' | 'fast' | 'precision') => {
     if (type === analysisType) return;
     setAnalysisType(type);
     setIsAnalysisRunning(true);
@@ -291,6 +327,25 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
     { name: 'prod-cluster-eu-central-01', reason: 'Insufficient RBAC permissions for this cluster' },
   ], []);
 
+  const clustersByEnv = React.useMemo(() => {
+    const envMap: Record<string, { eligible: string[]; ineligible: { name: string; reason: string }[] }> = {
+      Production: { eligible: [], ineligible: [] },
+      Staging: { eligible: [], ineligible: [] },
+      Development: { eligible: [], ineligible: [] },
+    };
+    affectedClusters.forEach(c => {
+      if (c.includes('staging') || c.includes('stg')) envMap.Staging.eligible.push(c);
+      else if (c.includes('dev')) envMap.Development.eligible.push(c);
+      else envMap.Production.eligible.push(c);
+    });
+    ineligibleClusters.forEach(c => {
+      if (c.name.includes('staging') || c.name.includes('stg')) envMap.Staging.ineligible.push(c);
+      else if (c.name.includes('dev')) envMap.Development.ineligible.push(c);
+      else envMap.Production.ineligible.push(c);
+    });
+    return envMap;
+  }, [affectedClusters, ineligibleClusters]);
+
   const [selectedClusters, setSelectedClusters] = React.useState<Set<string>>(new Set(affectedClusters));
 
   React.useEffect(() => {
@@ -314,13 +369,18 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
     setTimeout(() => setTestState('tested'), 2000);
   };
 
+  const handleApplyRemediation = () => {
+    setApplyState('applying');
+    setTimeout(() => setApplyState('applied'), 3000);
+  };
+
   const formatDuration = (ms: number): string => {
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--pf-t--global--background--color--primary--default)' }}>
+    <div className="ai-troubleshoot-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--pf-t--global--background--color--primary--default)' }}>
       {/* Header */}
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--pf-t--global--border--color--default)', flexShrink: 0 }}>
         <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsCenter' }}>
@@ -363,11 +423,38 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
         </Flex>
       </div>
 
+      {/* Workflow stages bar */}
+      {analysisApproved && (
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--pf-t--global--border--color--default)', flexShrink: 0, backgroundColor: 'var(--pf-t--global--background--color--secondary--default)' }}>
+          <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
+            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapXs' }}>
+              {(testState === 'tested' || applyState !== 'idle') && <Icon size="sm" status="success"><CheckCircleIcon /></Icon>}
+              <Label isCompact variant={testState === 'tested' || applyState !== 'idle' ? 'filled' : 'outline'} style={{ backgroundColor: testState === 'tested' || applyState !== 'idle' ? 'var(--pf-t--global--background--color--secondary--default)' : undefined, color: 'var(--pf-t--global--text--color--regular)' }}>
+                1. Proposal
+              </Label>
+            </Flex>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="var(--pf-t--global--text--color--subtle)"><path d="M5.5 3l5 5-5 5z"/></svg>
+            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapXs' }}>
+              {applyState === 'applied' && <Icon size="sm" status="success"><CheckCircleIcon /></Icon>}
+              <Label isCompact variant="outline" style={{ color: 'var(--pf-t--global--text--color--regular)', fontWeight: applyState !== 'idle' ? 600 : 400 }}>
+                2. Execution
+              </Label>
+            </Flex>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="var(--pf-t--global--text--color--subtle)"><path d="M5.5 3l5 5-5 5z"/></svg>
+            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapXs' }}>
+              {applyState === 'applied' && <Icon size="sm" status="success"><CheckCircleIcon /></Icon>}
+              <Label isCompact variant="outline" style={{ color: 'var(--pf-t--global--text--color--regular)', fontWeight: applyState === 'applied' ? 600 : 400 }}>
+                3. Verification
+              </Label>
+            </Flex>
+          </Flex>
+        </div>
+      )}
+
       {/* Body */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-        <Stack hasGutter>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px', display: 'block' }}>
           {/* Alert Name + Status */}
-          <StackItem>
+          <div style={{ marginBottom: '16px' }}>
             <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
               <Icon status="danger"><ExclamationCircleIcon /></Icon>
               <Title headingLevel="h3" size="md">{alert.alertName}</Title>
@@ -375,10 +462,10 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
             <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', marginTop: '4px', fontSize: '13px' }}>
               {alert.description || `${alert.component} usage on a ${alert.group} component is critically high.`}
             </Content>
-          </StackItem>
+          </div>
 
           {/* AI Insight — always visible */}
-          <StackItem>
+          <div style={{ marginBottom: '16px' }}>
             <div style={{
               backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
               borderRadius: '8px',
@@ -393,112 +480,71 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                 A sharp increase in write operations coincided with log rotation failures on prod-api-server-04, causing disk space to deplete from 72% to 98% within 14 minutes. The host is at imminent risk of an I/O block crash.
               </Content>
             </div>
-          </StackItem>
+          </div>
 
-          {/* Pre-analysis approval step */}
-          {!analysisApproved && (
-            <StackItem>
+
+          {/* Investigation in progress - shows timeline running */}
+          {analysisApproved && !analysisComplete && (
+            <div style={{ marginBottom: '16px' }}>
+              <Divider style={{ marginBottom: '12px' }} />
               <div style={{
+                padding: timelineCollapsing ? '8px 16px' : '16px',
                 backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
                 borderRadius: '8px',
-                padding: '16px',
                 border: '1px solid var(--pf-t--global--border--color--default)',
+                transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                maxHeight: timelineCollapsing ? '40px' : '300px',
+                opacity: timelineCollapsing ? 0.6 : 1,
+                overflow: 'hidden',
+                transform: timelineCollapsing ? 'scaleY(0.3) translateY(10px)' : 'scaleY(1) translateY(0)',
+                transformOrigin: 'top center',
               }}>
-                <Content component="small" style={{ fontWeight: 600, fontSize: '13px', marginBottom: '12px', display: 'block' }}>
-                  Select analysis method
-                </Content>
-                <Stack hasGutter>
-                  <StackItem>
-                    <div
-                      onClick={() => setPreApprovalType('smart')}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '6px',
-                        border: preApprovalType === 'smart'
-                          ? '2px solid var(--pf-t--global--color--status--info--default)'
-                          : '1px solid var(--pf-t--global--border--color--default)',
-                        backgroundColor: preApprovalType === 'smart'
-                          ? 'var(--pf-t--global--background--color--primary--default)'
-                          : 'transparent',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
-                        <input type="radio" name="analysis-type-approval" checked={preApprovalType === 'smart'} onChange={() => setPreApprovalType('smart')} style={{ margin: 0 }} />
-                        <FlexItem style={{ flex: 1 }}>
-                          <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart analysis</Content>
-                          <Content component="small" style={{ fontSize: '12px', margin: '2px 0 0', color: 'var(--pf-t--global--text--color--subtle)', display: 'block' }}>
-                            Deep multi-signal correlation across metrics, logs, and events. Higher confidence results.
-                          </Content>
-                        </FlexItem>
-                        <FlexItem>
-                          <Label isCompact variant="outline" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)', fontSize: '11px' }}>
-                            ~2,400 tokens
-                          </Label>
-                        </FlexItem>
+                <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginBottom: timelineCollapsing ? '0' : '12px' }}>
+                  {!timelineCollapsing ? (
+                    <span className="pf-v5-c-spinner pf-m-md" role="progressbar" aria-label="Analysis in progress">
+                      <span className="pf-v5-c-spinner__clipper" />
+                      <span className="pf-v5-c-spinner__lead-ball" />
+                      <span className="pf-v5-c-spinner__tail-ball" />
+                    </span>
+                  ) : (
+                    <Icon size="sm" status="success"><CheckCircleIcon /></Icon>
+                  )}
+                  <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
+                    {timelineCollapsing ? 'Analysis complete' : 'Investigation in progress...'}
+                  </Content>
+                  <Label isCompact variant="outline" style={{ fontSize: '11px' }}>
+                    {analysisType} agent
+                  </Label>
+                </Flex>
+                {!timelineCollapsing && (
+                  <div style={{ borderLeft: '2px solid var(--pf-t--global--border--color--default)', paddingLeft: '12px', marginLeft: '4px' }}>
+                    {investigationSteps.slice(0, 3).map((step, idx) => (
+                      <Flex key={idx} alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '4px 0', opacity: idx === 2 ? 0.5 : 1 }}>
+                        {idx < 2 ? (
+                          <Icon size="sm" status="success"><CheckCircleIcon /></Icon>
+                        ) : (
+                          <span className="pf-v5-c-spinner pf-m-sm" role="progressbar"><span className="pf-v5-c-spinner__clipper" /><span className="pf-v5-c-spinner__lead-ball" /><span className="pf-v5-c-spinner__tail-ball" /></span>
+                        )}
+                        <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                          {step.action}
+                        </Content>
+                        <Label isCompact variant="outline" style={{ fontSize: '10px' }}>{formatDuration(step.durationMs)}</Label>
                       </Flex>
-                    </div>
-                  </StackItem>
-                  <StackItem>
-                    <div
-                      onClick={() => setPreApprovalType('fast')}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '6px',
-                        border: preApprovalType === 'fast'
-                          ? '2px solid var(--pf-t--global--color--status--info--default)'
-                          : '1px solid var(--pf-t--global--border--color--default)',
-                        backgroundColor: preApprovalType === 'fast'
-                          ? 'var(--pf-t--global--background--color--primary--default)'
-                          : 'transparent',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
-                        <input type="radio" name="analysis-type-approval" checked={preApprovalType === 'fast'} onChange={() => setPreApprovalType('fast')} style={{ margin: 0 }} />
-                        <FlexItem style={{ flex: 1 }}>
-                          <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast analysis</Content>
-                          <Content component="small" style={{ fontSize: '12px', margin: '2px 0 0', color: 'var(--pf-t--global--text--color--subtle)', display: 'block' }}>
-                            Quick pattern-matching against known alert signatures. Lower token usage.
-                          </Content>
-                        </FlexItem>
-                        <FlexItem>
-                          <Label isCompact variant="outline" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)', fontSize: '11px' }}>
-                            ~800 tokens
-                          </Label>
-                        </FlexItem>
-                      </Flex>
-                    </div>
-                  </StackItem>
-                </Stack>
-                <Button variant="primary" style={{ marginTop: '16px' }} onClick={handleApproveAnalysis}>
-                  Run {preApprovalType === 'smart' ? 'smart' : 'fast'} analysis
-                </Button>
+                    ))}
+                  </div>
+                )}
               </div>
-            </StackItem>
-          )}
-
-          {/* Analysis in progress indicator */}
-          {analysisApproved && !analysisComplete && (
-            <StackItem>
-              <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ padding: '12px 0' }}>
-                <span className="pf-v5-c-spinner pf-m-md" role="progressbar" aria-label="Analysis in progress">
-                  <span className="pf-v5-c-spinner__clipper" />
-                  <span className="pf-v5-c-spinner__lead-ball" />
-                  <span className="pf-v5-c-spinner__tail-ball" />
-                </span>
-                <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', margin: 0 }}>
-                  Running {analysisType === 'smart' ? 'smart' : 'fast'} analysis...
-                </Content>
-              </Flex>
-            </StackItem>
+            </div>
           )}
 
           {/* Root Cause Analysis - Phase 2: Auto-revealed */}
           {analysisComplete && (
-            <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: analysisComplete ? 1 : 0 }}>
+            <div style={{ transition: 'opacity 0.3s ease-in', opacity: analysisComplete ? 1 : 0, marginBottom: '16px' }}>
+              <Divider style={{ marginBottom: '12px' }} />
               <ExpandableSection
-                toggleText="Root Cause Analysis"
+                toggleContent={
+                  <span style={{ fontSize: 'var(--pf-t--global--font--size--md)', fontWeight: 600 }}>Root cause analysis</span>
+                }
                 isExpanded={isRootCauseExpanded}
                 onToggle={(_e, expanded) => setIsRootCauseExpanded(expanded)}
               >
@@ -517,10 +563,6 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                       {MOCK_ROOT_CAUSE}
                     </Content>
                     <Flex alignItems={{ default: 'alignItemsCenter' }} justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginTop: '12px' }}>
-                      <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
-                        <Label isCompact variant="outline">Confidence: 94%</Label>
-                        <Label isCompact variant="outline">{analysisType === 'smart' ? 'Smart' : 'Fast'} analysis</Label>
-                      </Flex>
                       {!rootCauseAcknowledged ? (
                         <Button variant="secondary" size="sm" onClick={handleAcknowledgeRootCause}>
                           Acknowledge &amp; view remediation
@@ -531,7 +573,48 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                           <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--color--status--success--default)' }}>Acknowledged</Content>
                         </Flex>
                       )}
+                      <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
+                        <Label isCompact variant="outline">Confidence: 94%</Label>
+                        <Button variant="link" isInline style={{ fontSize: '12px' }} onClick={() => setShowAgentSelection(!showAgentSelection)}>
+                          {agentDisplayName(analysisType)} {showAgentSelection ? '▾' : '▸'}
+                        </Button>
+                      </Flex>
                     </Flex>
+
+                    {/* Inline agent type selection */}
+                    {showAgentSelection && (
+                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--pf-t--global--border--color--default)' }}>
+                        <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: '0 0 8px', display: 'block' }}>
+                          Select agent type
+                        </Content>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+                            <input type="radio" name="rca-agent-type" checked={preApprovalType === 'fast'} onChange={() => setPreApprovalType('fast')} style={{ marginTop: '3px' }} />
+                            <div>
+                              <span style={{ fontWeight: 600, fontSize: '13px', display: 'block' }}>Fast agent</span>
+                              <span style={{ fontSize: '12px', color: 'var(--pf-t--global--text--color--subtle)' }}>Quick pattern-matching against known alert signatures. ~800 tokens.</span>
+                            </div>
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+                            <input type="radio" name="rca-agent-type" checked={preApprovalType === 'smart'} onChange={() => setPreApprovalType('smart')} style={{ marginTop: '3px' }} />
+                            <div>
+                              <span style={{ fontWeight: 600, fontSize: '13px', display: 'block' }}>Standard optimization</span>
+                              <span style={{ fontSize: '12px', color: 'var(--pf-t--global--text--color--subtle)' }}>Deep multi-signal correlation across metrics, logs, and events. ~2,400 tokens.</span>
+                            </div>
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+                            <input type="radio" name="rca-agent-type" checked={preApprovalType === 'precision'} onChange={() => setPreApprovalType('precision')} style={{ marginTop: '3px' }} />
+                            <div>
+                              <span style={{ fontWeight: 600, fontSize: '13px', display: 'block' }}>Deep system verification</span>
+                              <span style={{ fontSize: '12px', color: 'var(--pf-t--global--text--color--subtle)' }}>Full-depth analysis with formal verification and blast-radius simulation. ~4,800 tokens.</span>
+                            </div>
+                          </label>
+                        </div>
+                        <Button variant="primary" size="sm" style={{ marginTop: '12px' }} onClick={handleApproveAnalysis}>
+                          Re-run with {agentDisplayName(preApprovalType)}
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Supporting evidence: dual-view diagnostic */}
@@ -542,7 +625,15 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                       onClick={() => setShowEvidence(!showEvidence)}
                       aria-expanded={showEvidence}
                       aria-controls="rca-supporting-evidence"
-                      style={{ fontSize: '13px', paddingLeft: 0 }}
+                      style={{
+                        fontSize: '13px',
+                        paddingLeft: 0,
+                        transition: 'background-color 0.8s ease-out, box-shadow 0.8s ease-out',
+                        backgroundColor: evidenceHighlight ? 'var(--pf-t--global--background--color--status--info--default)' : 'transparent',
+                        boxShadow: evidenceHighlight ? '0 0 0 4px var(--pf-t--global--background--color--status--info--default)' : 'none',
+                        borderRadius: evidenceHighlight ? '4px' : undefined,
+                        padding: evidenceHighlight ? '4px 8px' : undefined,
+                      }}
                       icon={
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ transform: showEvidence ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
                           <path d="M6 4l4 4-4 4z"/>
@@ -565,67 +656,6 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                           padding: '12px 12px 12px 16px',
                         }}
                       >
-                        {/* Analysis type selector */}
-                        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} style={{ marginBottom: '12px' }}>
-                          <Content component="small" style={{ fontSize: '12px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>Analysis:</Content>
-                          <div style={{ position: 'relative' }}>
-                            <MenuToggle
-                              onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)}
-                              isExpanded={isAnalysisDropdownOpen}
-                              style={{ minWidth: '120px' }}
-                              aria-label="Select analysis type"
-                            >
-                              {analysisType === 'smart' ? 'Smart' : 'Fast'}
-                            </MenuToggle>
-                            {isAnalysisDropdownOpen && (
-                              <div style={{
-                                position: 'absolute',
-                                top: '100%',
-                                left: 0,
-                                zIndex: 1000,
-                                marginTop: '4px',
-                                backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-                                border: '1px solid var(--pf-t--global--border--color--default)',
-                                borderRadius: '6px',
-                                boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-                                minWidth: '240px',
-                                overflow: 'hidden',
-                              }}>
-                                <div
-                                  role="option"
-                                  aria-selected={analysisType === 'smart'}
-                                  onClick={() => { handleAnalysisTypeChange('smart'); setIsAnalysisDropdownOpen(false); }}
-                                  style={{
-                                    padding: '10px 16px',
-                                    cursor: 'pointer',
-                                    backgroundColor: analysisType === 'smart' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                                  }}
-                                >
-                                  <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Smart</Content>
-                                  <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                                    Deep multi-signal correlation. Higher confidence.
-                                  </Content>
-                                </div>
-                                <div style={{ borderTop: '1px solid var(--pf-t--global--border--color--default)' }} />
-                                <div
-                                  role="option"
-                                  aria-selected={analysisType === 'fast'}
-                                  onClick={() => { handleAnalysisTypeChange('fast'); setIsAnalysisDropdownOpen(false); }}
-                                  style={{
-                                    padding: '10px 16px',
-                                    cursor: 'pointer',
-                                    backgroundColor: analysisType === 'fast' ? 'var(--pf-t--global--background--color--secondary--default)' : 'transparent',
-                                  }}
-                                >
-                                  <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0, display: 'block' }}>Fast</Content>
-                                  <Content component="small" style={{ fontSize: '11px', margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                                    Quick single-signal analysis for known patterns.
-                                  </Content>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </Flex>
 
                         {/* View switcher (segmented control) */}
                         <div role="tablist" aria-label="Evidence view" style={{
@@ -919,24 +949,36 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                   </div>
                 </div>
               </ExpandableSection>
-            </StackItem>
+            </div>
           )}
 
           {/* Suggested Remediation Plans - Phase 3: User-triggered */}
           {rootCauseAcknowledged && (
-            <StackItem style={{ transition: 'opacity 0.3s ease-in', opacity: rootCauseAcknowledged ? 1 : 0 }}>
-              <ExpandableSection
-                toggleText="Suggested Remediation Plans"
-                isExpanded={isRemediationExpanded}
-                onToggle={(_e, expanded) => setIsRemediationExpanded(expanded)}
-              >
+            <div style={{ transition: 'opacity 0.3s ease-in', opacity: rootCauseAcknowledged ? 1 : 0 }}>
+              <Divider style={{ marginBottom: '12px' }} />
+              <div>
+                <Button
+                  variant="link"
+                  isInline
+                  onClick={() => setIsRemediationExpanded(!isRemediationExpanded)}
+                  style={{ fontSize: 'var(--pf-t--global--font--size--md)', fontWeight: 600, paddingLeft: 0 }}
+                  icon={
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isRemediationExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                      <path d="M6 4l4 4-4 4z"/>
+                    </svg>
+                  }
+                >
+                  Remediation plans <Label isCompact variant="outline" style={{ marginLeft: '8px' }}>{MOCK_REMEDIATION_PLANS.length} options</Label>
+                </Button>
+              </div>
+              {isRemediationExpanded && (
               <div style={{ marginTop: '8px' }}>
                 {/* Plan selector */}
-                <Stack hasGutter>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 'none' }}>
                   {MOCK_REMEDIATION_PLANS.map((plan, planIdx) => (
-                    <StackItem key={planIdx}>
+                    <div key={planIdx}>
                       <div
-                        onClick={() => { setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
+                        onClick={() => { if (applyState === 'applied' && selectedPlanIdx !== planIdx) return; setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
                         style={{
                           padding: '12px',
                           borderRadius: '6px',
@@ -946,7 +988,8 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                           backgroundColor: selectedPlanIdx === planIdx
                             ? 'var(--pf-t--global--background--color--secondary--default)'
                             : 'transparent',
-                          cursor: 'pointer',
+                          cursor: (applyState === 'applied' && selectedPlanIdx !== planIdx) ? 'not-allowed' : 'pointer',
+                          opacity: (applyState === 'applied' && selectedPlanIdx !== planIdx) ? 0.5 : 1,
                         }}
                       >
                         <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsCenter' }}>
@@ -956,7 +999,8 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                 type="radio"
                                 name="remediation-plan"
                                 checked={selectedPlanIdx === planIdx}
-                                onChange={() => { setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
+                                disabled={applyState === 'applied' && selectedPlanIdx !== planIdx}
+                                onChange={() => { if (applyState === 'applied' && selectedPlanIdx !== planIdx) return; setSelectedPlanIdx(planIdx); setShowRawCommands(false); setShowRbacRoles(false); }}
                                 style={{ margin: 0 }}
                               />
                               <Content component="small" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
@@ -1151,10 +1195,15 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
 
                             {/* Test / Verification / Apply — inside selected plan card */}
                             <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--pf-t--global--border--color--default)' }}>
-                              {testState === 'idle' && (
-                                <Button variant="secondary" onClick={(e) => { e.stopPropagation(); handleTestRemediation(); }}>
-                                  Test Before Applying
-                                </Button>
+                              {testState === 'idle' && applyState === 'idle' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                  <Button variant="secondary" onClick={(e) => { e.stopPropagation(); handleTestRemediation(); }}>
+                                    Test Before Applying
+                                  </Button>
+                                  <Button variant="link" isInline style={{ fontSize: '12px', color: 'var(--pf-t--global--text--color--subtle)' }} onClick={(e) => { e.stopPropagation(); }}>
+                                    Remediate without testing (not recommended)
+                                  </Button>
+                                </div>
                               )}
                               {testState === 'testing' && (
                                 <Button variant="secondary" isLoading isDisabled>
@@ -1162,8 +1211,8 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                 </Button>
                               )}
                               {testState === 'tested' && (
-                                <Stack hasGutter>
-                                  <StackItem>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                  <div>
                                     <div style={{
                                       backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
                                       borderRadius: '8px',
@@ -1186,7 +1235,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                         for 5 min. Success: disk &lt; 75%, logrotate exit code 0.
                                       </Content>
                                       <Flex gap={{ default: 'gapMd' }} style={{ marginTop: '8px' }} alignItems={{ default: 'alignItemsCenter' }}>
-                                        <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<AiExperienceIcon />}>
+                                        <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<AiExperienceIcon />} onClick={(e) => { e.stopPropagation(); setShowInlineChat(!showInlineChat); }}>
                                           Discuss with LightSpeed
                                         </Button>
                                         <Button variant="link" isInline style={{ fontSize: '12px' }} icon={<DownloadIcon />}>
@@ -1194,13 +1243,14 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                         </Button>
                                       </Flex>
                                     </div>
-                                  </StackItem>
-                                  <StackItem>
+                                  </div>
+                                  {applyState !== 'applied' && (
+                                  <div>
                                     {affectedClusters.length > 1 ? (
                                       <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapNone' }}>
                                         <FlexItem>
-                                          <Button variant="primary" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
-                                            Apply Remediation ({selectedClusters.size} of {affectedClusters.length + ineligibleClusters.length} clusters)
+                                          <Button variant="primary" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }} onClick={handleApplyRemediation} isLoading={applyState === 'applying'} isDisabled={applyState === 'applying'}>
+                                            {applyState === 'applying' ? 'Applying...' : `Apply Remediation (${selectedClusters.size} of ${affectedClusters.length + ineligibleClusters.length} clusters)`}
                                           </Button>
                                         </FlexItem>
                                         <FlexItem>
@@ -1221,66 +1271,278 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                             )}
                                             popperProps={{ appendTo: 'inline', position: 'end', direction: 'up' }}
                                           >
-                                            <DropdownList style={{ maxHeight: '240px', overflowY: 'auto' }}>
+                                            <DropdownList style={{ maxHeight: '280px', overflowY: 'auto' }}>
                                               <DropdownItem key="select-all" onClick={() => setSelectedClusters(new Set(affectedClusters))}>
                                                 Select all eligible clusters
                                               </DropdownItem>
                                               <DropdownItem key="deselect-all" onClick={() => setSelectedClusters(new Set())}>
                                                 Deselect all
                                               </DropdownItem>
-                                              <Divider component="li" />
-                                              {affectedClusters.map((cluster) => (
-                                                <DropdownItem key={cluster} onClick={(e) => { e.preventDefault(); toggleClusterSelection(cluster); }} style={{ padding: '8px 16px' }}>
-                                                  <Checkbox
-                                                    id={`cluster-card-${cluster}`}
-                                                    label={cluster}
-                                                    isChecked={selectedClusters.has(cluster)}
-                                                    onChange={() => toggleClusterSelection(cluster)}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                  />
-                                                </DropdownItem>
-                                              ))}
-                                              {ineligibleClusters.map((cluster) => (
-                                                <DropdownItem
-                                                  key={cluster.name}
-                                                  isDisabled
-                                                  style={{ padding: '8px 16px' }}
-                                                >
-                                                  <Checkbox
-                                                    id={`cluster-card-disabled-${cluster.name}`}
-                                                    label={cluster.name}
-                                                    isChecked={false}
-                                                    isDisabled
-                                                    onChange={() => {}}
-                                                    body={<span style={{ fontSize: '11px', color: 'var(--pf-t--global--text--color--subtle)', display: 'block', marginTop: '2px' }}>{cluster.reason}</span>}
-                                                  />
-                                                </DropdownItem>
-                                              ))}
+                                              {Object.entries(clustersByEnv).map(([env, { eligible, ineligible }]) => {
+                                                if (eligible.length === 0 && ineligible.length === 0) return null;
+                                                return (
+                                                  <React.Fragment key={env}>
+                                                    <Divider component="li" />
+                                                    <DropdownItem key={`group-${env}`} isDisabled style={{ padding: '6px 16px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                                      {env}
+                                                    </DropdownItem>
+                                                    {eligible.map((cluster) => (
+                                                      <DropdownItem key={cluster} onClick={(e) => { e.preventDefault(); toggleClusterSelection(cluster); }} style={{ padding: '6px 16px 6px 24px' }}>
+                                                        <Checkbox
+                                                          id={`cluster-card-${cluster}`}
+                                                          label={cluster}
+                                                          isChecked={selectedClusters.has(cluster)}
+                                                          onChange={() => toggleClusterSelection(cluster)}
+                                                          onClick={(e) => e.stopPropagation()}
+                                                        />
+                                                      </DropdownItem>
+                                                    ))}
+                                                    {ineligible.map((cluster) => (
+                                                      <DropdownItem
+                                                        key={cluster.name}
+                                                        isDisabled
+                                                        style={{ padding: '6px 16px 6px 24px' }}
+                                                      >
+                                                        <Checkbox
+                                                          id={`cluster-card-disabled-${cluster.name}`}
+                                                          label={cluster.name}
+                                                          isChecked={false}
+                                                          isDisabled
+                                                          onChange={() => {}}
+                                                          body={<span style={{ fontSize: '11px', color: 'var(--pf-t--global--text--color--subtle)', display: 'block', marginTop: '2px' }}>{cluster.reason}</span>}
+                                                        />
+                                                      </DropdownItem>
+                                                    ))}
+                                                  </React.Fragment>
+                                                );
+                                              })}
                                             </DropdownList>
                                           </Dropdown>
                                         </FlexItem>
                                       </Flex>
                                     ) : (
-                                      <Button variant="primary">
-                                        Apply Remediation
+                                      <Button variant="primary" onClick={handleApplyRemediation} isLoading={applyState === 'applying'} isDisabled={applyState === 'applying'}>
+                                        {applyState === 'applying' ? 'Applying remediation...' : 'Apply Remediation'}
                                       </Button>
                                     )}
-                                  </StackItem>
-                                </Stack>
+                                  </div>
+                                  )}
+
+                                  {/* Post-Remediation Success + Execution Summary */}
+                                  {applyState === 'applied' && (
+                                    <div style={{ marginTop: '12px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                        <CheckCircleIcon color="var(--pf-t--global--color--status--success--default)" />
+                                        <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--pf-t--global--color--status--success--default)' }}>
+                                          Remediation executed successfully
+                                        </span>
+                                      </div>
+                                      <div style={{ marginLeft: '24px' }}>
+                                        <Button
+                                          variant="link"
+                                          isInline
+                                          onClick={() => setShowPostMortem(!showPostMortem)}
+                                          style={{ fontSize: '12px', paddingLeft: 0 }}
+                                          icon={<AiExperienceIcon size={14} />}
+                                        >
+                                          {showPostMortem ? 'Hide execution summary' : 'View execution summary'}
+                                        </Button>
+                                        {showPostMortem && (
+                                          <div style={{ marginTop: '10px', paddingLeft: '4px' }}>
+                                            <Content component="small" style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--pf-t--global--text--color--subtle)', display: 'block', marginBottom: '8px' }}>
+                                              Contextual Evidence
+                                            </Content>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 16px', fontSize: '13px', marginBottom: '16px' }}>
+                                              <Content component="small" style={{ fontWeight: 600, margin: 0 }}>Original root cause</Content>
+                                              <Content component="small" style={{ margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                                {MOCK_ROOT_CAUSE.substring(0, 120)}...
+                                              </Content>
+                                              <Content component="small" style={{ fontWeight: 600, margin: 0 }}>Remediation delta</Content>
+                                              <Content component="small" style={{ margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                                {MOCK_REMEDIATION_PLANS[selectedPlanIdx]?.name || 'Applied remediation plan'}
+                                              </Content>
+                                            </div>
+
+                                            <Content component="small" style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--pf-t--global--text--color--subtle)', display: 'block', marginBottom: '8px' }}>
+                                              Execution Scope
+                                            </Content>
+                                            <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                                              {(affectedClusters.length > 1
+                                                ? Array.from(selectedClusters)
+                                                : ['prod-api-server-04']
+                                              ).map(target => (
+                                                <Label key={target} isCompact variant="outline">{target}</Label>
+                                              ))}
+                                            </div>
+
+                                            <Content component="small" style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--pf-t--global--text--color--subtle)', display: 'block', marginBottom: '8px' }}>
+                                              Audit Trail
+                                            </Content>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 16px', fontSize: '13px', marginBottom: '16px' }}>
+                                              <Content component="small" style={{ fontWeight: 600, margin: 0 }}>Applied</Content>
+                                              <Content component="small" style={{ margin: 0 }}>Thu 10:18:38 UTC</Content>
+                                              <Content component="small" style={{ fontWeight: 600, margin: 0 }}>System restored</Content>
+                                              <Content component="small" style={{ margin: 0 }}>Thu 10:19:10 UTC</Content>
+                                              <Content component="small" style={{ fontWeight: 600, margin: 0 }}>Execution time</Content>
+                                              <Content component="small" style={{ margin: 0 }}>32s</Content>
+                                              <Content component="small" style={{ fontWeight: 600, margin: 0 }}>Git commit</Content>
+                                              <Content component="small" style={{ margin: 0 }}>
+                                                <Button variant="link" isInline style={{ fontSize: '13px' }}>#0001c135</Button>
+                                              </Content>
+                                            </div>
+
+                                            <details style={{ marginTop: '4px' }}>
+                                              <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--pf-t--global--link--color--regular)' }}>View raw execution logs</summary>
+                                              <div style={{ marginTop: '8px', padding: '12px', backgroundColor: 'var(--pf-t--global--background--color--secondary--default)', borderRadius: '4px', fontFamily: 'var(--pf-t--global--font--family--mono)', fontSize: '11px', maxHeight: '120px', overflow: 'auto' }}>
+                                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{`$ kubectl rollout restart deployment/nginx -n production
+deployment.apps/nginx restarted
+$ systemctl restart logrotate.service
+logrotate.service restarted successfully (exit code 0)
+$ df -h /var
+Filesystem   Size  Used Avail Use%
+/dev/sda1    200G  140G   60G  70%`}</pre>
+                                              </div>
+                                            </details>
+
+                                            <div style={{ display: 'flex', gap: '12px', marginTop: '12px', alignItems: 'center' }}>
+                                              <Button variant="danger" size="sm">Initiate Rollback</Button>
+                                              <Button variant="link" isInline style={{ fontSize: '13px' }} icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M14 3H2v10h12V3zm-1 1v6H3V4h10zM8 14l-1-1h2l-1 1z"/></svg>}>
+                                                Export to ITSM Ticket
+                                              </Button>
+                                            </div>
+                                            <div style={{ marginTop: '8px' }}>
+                                              <Button variant="link" isInline style={{ fontSize: '13px' }} icon={<DownloadIcon />}>
+                                                Download Post-Mortem Report
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>
                         )}
                       </div>
-                    </StackItem>
+                    </div>
                   ))}
-                </Stack>
+                </div>
               </div>
-            </ExpandableSection>
-          </StackItem>
+              )}
+          </div>
           )}
-        </Stack>
       </div>
+
+      {/* LightSpeed Chat Slide-out Drawer */}
+      {showInlineChat && (
+        <div style={{
+          flexShrink: 0,
+          borderTop: '1px solid var(--pf-t--global--border--color--default)',
+          backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+          maxHeight: '320px',
+          display: 'flex',
+          flexDirection: 'column',
+          transition: 'max-height 0.2s ease-in-out',
+        }}>
+          <div style={{
+            padding: '8px 12px',
+            borderBottom: '1px solid var(--pf-t--global--border--color--default)',
+            backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexShrink: 0,
+          }}>
+            <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+              <AiExperienceIcon size={14} />
+              <Content component="small" style={{ fontWeight: 600, fontSize: '12px', margin: 0 }}>LightSpeed Assistant</Content>
+            </Flex>
+            <Button variant="plain" size="sm" aria-label="Close chat" onClick={() => setShowInlineChat(false)} style={{ padding: '2px' }}>
+              <TimesIcon />
+            </Button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px' }}>
+            <Stack hasGutter>
+              {chatMessages.map((msg, idx) => (
+                <StackItem key={idx}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                  }}>
+                    <div style={{
+                      maxWidth: '85%',
+                      padding: '8px 12px',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      lineHeight: '1.4',
+                      backgroundColor: msg.role === 'user'
+                        ? 'var(--pf-t--global--color--status--info--default)'
+                        : 'var(--pf-t--global--background--color--secondary--default)',
+                      color: msg.role === 'user'
+                        ? '#fff'
+                        : 'var(--pf-t--global--text--color--regular)',
+                    }}>
+                      {msg.text}
+                    </div>
+                  </div>
+                </StackItem>
+              ))}
+            </Stack>
+          </div>
+          <div style={{
+            padding: '8px 12px',
+            borderTop: '1px solid var(--pf-t--global--border--color--default)',
+            display: 'flex',
+            gap: '8px',
+            flexShrink: 0,
+          }}>
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && chatInput.trim()) {
+                  setChatMessages(prev => [...prev, { role: 'user', text: chatInput.trim() }]);
+                  const userMsg = chatInput.trim();
+                  setChatInput('');
+                  setTimeout(() => {
+                    setChatMessages(prev => [...prev, { role: 'assistant', text: `Based on the remediation plan context, I'd suggest reviewing the ${userMsg.includes('risk') ? 'risk assessment details' : 'execution steps'} carefully before proceeding. Would you like me to elaborate?` }]);
+                  }, 800);
+                }
+              }}
+              placeholder="Ask about this remediation..."
+              style={{
+                flex: 1,
+                border: '1px solid var(--pf-t--global--border--color--default)',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                fontSize: '12px',
+                outline: 'none',
+                backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+              }}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              isDisabled={!chatInput.trim()}
+              onClick={() => {
+                if (chatInput.trim()) {
+                  setChatMessages(prev => [...prev, { role: 'user', text: chatInput.trim() }]);
+                  const userMsg = chatInput.trim();
+                  setChatInput('');
+                  setTimeout(() => {
+                    setChatMessages(prev => [...prev, { role: 'assistant', text: `Based on the remediation plan context, I'd suggest reviewing the ${userMsg.includes('risk') ? 'risk assessment details' : 'execution steps'} carefully before proceeding. Would you like me to elaborate?` }]);
+                  }, 800);
+                }
+              }}
+            >
+              Send
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Fixed Footer - Disclaimer */}
       <div style={{
@@ -1289,7 +1551,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
         flexShrink: 0,
         backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
       }}>
-        {!rootCauseAcknowledged && (
+        {!rootCauseAcknowledged && !showAgentSelection && (
           <Content component="small" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '12px', margin: '0 0 8px 0', display: 'block' }}>
             {analysisComplete ? 'Acknowledge the root cause analysis to proceed with remediation.' : 'Analysis in progress...'}
           </Content>
