@@ -303,7 +303,9 @@ const AlertsTableContent: React.FC<AlertsTableContentProps> = ({
           <DropdownItem key="metrics" onClick={() => setOpenActionMenuId(null)}>View metrics</DropdownItem>
           <DropdownItem key="incident" onClick={() => setOpenActionMenuId(null)}>See related incident</DropdownItem>
           <DropdownItem key="troubleshoot" onClick={() => setOpenActionMenuId(null)}>Troubleshoot with Signal Correlation</DropdownItem>
-          <DropdownItem key="troubleshoot-ai" icon={<AiTroubleshootIcon />} onClick={() => { setOpenActionMenuId(null); if (alertForAction && onTroubleshootWithAi) onTroubleshootWithAi(alertForAction); }}>Investigate with AI</DropdownItem>
+          <DropdownItem key="troubleshoot-ai" icon={<AiTroubleshootIcon />} onClick={() => { setOpenActionMenuId(null); if (alertForAction && onTroubleshootWithAi) onTroubleshootWithAi(alertForAction); }}>
+            {alertForAction && (alertForAction.alertName?.toLowerCase().includes('cpu') || alertForAction.alertName?.toLowerCase().includes('memory') || alertForAction.alertName?.toLowerCase().includes('nodenotready')) ? 'View AI investigation' : 'Investigate with AI'}
+          </DropdownItem>
         </DropdownList>
       </Dropdown>
     );

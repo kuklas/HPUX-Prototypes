@@ -50,6 +50,7 @@ export interface AiTroubleshootPanelProps {
   alert: AlertData;
   onBack: () => void;
   onClose: () => void;
+  preAnalyzed?: boolean;
 }
 
 interface InvestigationStep {
@@ -123,7 +124,29 @@ INFO  Identified /var as primary contributor (98.4% used)
 INFO  Pattern match: large log + failed logrotate (known pattern ID: DISK-003)
 INFO  Analysis complete. Confidence: 78%`;
 
-const MOCK_ROOT_CAUSE = `Finding: The logrotate daemon failed to compress and cycle Nginx access logs due to a broken permission mask (0644 instead of 0640 expected by the system user) introduced during a routine security hardening script. Uncompressed active logs consumed the entire partition during peak afternoon traffic.`;
+const getRootCause = (alert: AlertData): string => {
+  const name = alert.alertName || 'Unknown alert';
+  const component = alert.component || 'system';
+  const namespace = alert.namespace || 'default';
+  const cluster = alert.clusterName || 'cluster';
+
+  const rootCauses: Record<string, string> = {
+    'NodeNotReady': `Finding: Node kubelet on ${cluster} entered NotReady state due to an exhausted inotify watch limit (fs.inotify.max_user_watches) triggered by a monitoring DaemonSet upgrade in namespace ${namespace}. The kubelet health check failed after the kernel refused new watch registrations, cascading into pod eviction across the affected ${component} workloads.`,
+    'HighDiskUsage': `Finding: The logrotate daemon failed to compress and cycle application logs due to a broken permission mask (0644 instead of 0640 expected by the system user) introduced during a routine security hardening script. Uncompressed active logs consumed the entire ${component} partition during peak traffic on ${cluster}.`,
+    'PodCrashLooping': `Finding: Pod restart loop in namespace ${namespace} on ${cluster} caused by an OOMKill on the ${component} container. The memory limit (512Mi) is insufficient for the current workload pattern — heap allocation spiked to 680Mi during periodic batch reconciliation, triggering the kernel OOM killer every 45-90 seconds.`,
+    'HighCPUUsage': `Finding: Sustained CPU saturation (>95%) on ${component} in namespace ${namespace} traced to an inefficient regex compilation in the request routing layer. A recent config change introduced a backtracking-prone pattern that consumes O(2^n) CPU cycles on malformed input paths, affecting all pods on ${cluster}.`,
+    'HighMemoryUsage': `Finding: Memory pressure on ${component} in namespace ${namespace} caused by an unbounded in-memory cache that lacks TTL eviction. Object count grew from 12K to 340K entries over 72 hours following a traffic ramp, pushing resident memory from 1.2GB to 3.8GB on ${cluster}.`,
+    'KubeAPIErrorsHigh': `Finding: Elevated API server error rate on ${cluster} correlated with a surge in LIST requests from a misconfigured operator in namespace ${namespace}. The operator's informer cache was invalidated by a CRD schema migration, causing full re-list operations every 10 seconds against the ${component} API group.`,
+  };
+
+  const matchedKey = Object.keys(rootCauses).find(key =>
+    name.toLowerCase().includes(key.toLowerCase())
+  );
+
+  if (matchedKey) return rootCauses[matchedKey];
+
+  return `Finding: Analysis of ${name} on ${cluster} in namespace ${namespace} indicates a resource constraint on the ${component} subsystem. The condition was triggered by a configuration drift detected during the last 24-hour observation window, correlating with elevated error rates across dependent services.`;
+};
 
 type InlinePart = string | { code: string };
 
@@ -210,15 +233,15 @@ const MOCK_REMEDIATION_PLANS: RemediationPlan[] = [
   },
 ];
 
-export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert, onBack, onClose }) => {
+export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert, onBack, onClose, preAnalyzed = false }) => {
   const [isKebabOpen, setIsKebabOpen] = React.useState(false);
   const [analysisApproved, setAnalysisApproved] = React.useState(true);
   const [analysisRunCount, setAnalysisRunCount] = React.useState(0);
   const [preApprovalType, setPreApprovalType] = React.useState<'smart' | 'fast' | 'precision'>('fast');
   const [showAgentSelection, setShowAgentSelection] = React.useState(false);
-  const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(false);
-  const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(false);
-  const [rootCauseAcknowledged, setRootCauseAcknowledged] = React.useState(false);
+  const [isRootCauseExpanded, setIsRootCauseExpanded] = React.useState(preAnalyzed);
+  const [isRemediationExpanded, setIsRemediationExpanded] = React.useState(preAnalyzed);
+  const [rootCauseAcknowledged, setRootCauseAcknowledged] = React.useState(preAnalyzed);
   const [testState, setTestState] = React.useState<'idle' | 'testing' | 'tested'>('idle');
   const [applyState, setApplyState] = React.useState<'idle' | 'applying' | 'applied'>('idle');
   const [analysisType, setAnalysisType] = React.useState<'smart' | 'fast' | 'precision'>('fast');
@@ -232,7 +255,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
   const [showRawCommands, setShowRawCommands] = React.useState(false);
   const [showRbacRoles, setShowRbacRoles] = React.useState(false);
   const [topologyZoom, setTopologyZoom] = React.useState(1);
-  const [analysisComplete, setAnalysisComplete] = React.useState(false);
+  const [analysisComplete, setAnalysisComplete] = React.useState(preAnalyzed);
   const [showPostMortem, setShowPostMortem] = React.useState(false);
   const [timelineCollapsing, setTimelineCollapsing] = React.useState(false);
   const [evidenceHighlight, setEvidenceHighlight] = React.useState(false);
@@ -268,7 +291,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
 
   // Phase 2: Auto-reveal root cause after reasoning chain "completes"
   React.useEffect(() => {
-    if (!analysisApproved) return;
+    if (!analysisApproved || preAnalyzed) return;
     const collapseTimer = setTimeout(() => {
       setTimelineCollapsing(true);
     }, 2000);
@@ -477,7 +500,16 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                 <Content component="small" style={{ fontWeight: 600, fontSize: '13px' }}>AI Insights</Content>
               </Flex>
               <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.5' }}>
-                A sharp increase in write operations coincided with log rotation failures on prod-api-server-04, causing disk space to deplete from 72% to 98% within 14 minutes. The host is at imminent risk of an I/O block crash.
+                {alert.alertName?.includes('NodeNotReady')
+                  ? `Multiple nodes on ${alert.clusterName || 'the cluster'} are reporting NotReady status. Correlation analysis suggests a shared infrastructure event affecting the ${alert.component || 'system'} layer in namespace ${alert.namespace || 'default'}.`
+                  : alert.alertName?.includes('CPU')
+                  ? `Sustained CPU saturation detected on ${alert.component || 'workload'} in namespace ${alert.namespace || 'default'}. Pattern analysis indicates a computational regression introduced within the last deployment window.`
+                  : alert.alertName?.includes('Memory')
+                  ? `Memory consumption on ${alert.component || 'workload'} is approaching critical limits. Growth pattern is non-linear, suggesting an unbounded resource accumulation rather than normal load scaling.`
+                  : alert.alertName?.includes('Pod')
+                  ? `Repeated container restarts detected in namespace ${alert.namespace || 'default'}. OOMKill signals correlate with periodic batch processing cycles on ${alert.clusterName || 'the affected cluster'}.`
+                  : `Anomalous behavior detected on ${alert.component || 'system'} in namespace ${alert.namespace || 'default'} on ${alert.clusterName || 'the cluster'}. The condition correlates with recent configuration changes and elevated error rates.`
+                }
               </Content>
             </div>
           </div>
@@ -560,7 +592,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13 1H5a1 1 0 00-1 1v2h2V3h7v8h-1v2h2a1 1 0 001-1V2a1 1 0 00-1-1z"/><path d="M10 5H3a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V6a1 1 0 00-1-1zM9 13H4V7h5v6z"/></svg>
                     </Button>
                     <Content component="p" style={{ color: 'var(--pf-t--global--text--color--subtle)', fontSize: '13px', lineHeight: '1.6', paddingRight: '24px' }}>
-                      {MOCK_ROOT_CAUSE}
+                      {getRootCause(alert)}
                     </Content>
                     <Flex alignItems={{ default: 'alignItemsCenter' }} justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginTop: '12px' }}>
                       {!rootCauseAcknowledged ? (
@@ -1355,7 +1387,7 @@ export const AiTroubleshootPanel: React.FC<AiTroubleshootPanelProps> = ({ alert,
                                             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 16px', fontSize: '13px', marginBottom: '16px' }}>
                                               <Content component="small" style={{ fontWeight: 600, margin: 0 }}>Original root cause</Content>
                                               <Content component="small" style={{ margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>
-                                                {MOCK_ROOT_CAUSE.substring(0, 120)}...
+                                                {getRootCause(alert).substring(0, 120)}...
                                               </Content>
                                               <Content component="small" style={{ fontWeight: 600, margin: 0 }}>Remediation delta</Content>
                                               <Content component="small" style={{ margin: 0, color: 'var(--pf-t--global--text--color--subtle)' }}>

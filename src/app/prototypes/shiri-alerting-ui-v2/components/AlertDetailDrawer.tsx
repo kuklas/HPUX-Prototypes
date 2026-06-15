@@ -38,6 +38,12 @@ const AiTroubleshootIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   </svg>
 );
 
+const isAlertPreAnalyzed = (alert: AlertData | null): boolean => {
+  if (!alert) return false;
+  const name = alert.alertName?.toLowerCase() || '';
+  return name.includes('cpu') || name.includes('memory') || name.includes('nodenotready');
+};
+
 export interface AlertDetailDrawerProps {
   isExpanded: boolean;
   selectedAlert: AlertData | null;
@@ -109,6 +115,7 @@ export const AlertDetailDrawer: React.FC<AlertDetailDrawerProps> = ({
             alert={selectedAlert}
             onBack={() => setShowAiTroubleshoot(false)}
             onClose={onClose}
+            preAnalyzed={isAlertPreAnalyzed(selectedAlert)}
           />
         ) : (
         <>
@@ -499,7 +506,7 @@ export const AlertDetailDrawer: React.FC<AlertDetailDrawerProps> = ({
                         <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
                           <Icon size="md"><AiTroubleshootIcon size={18} /></Icon>
                           <Button variant="link" isInline onClick={() => setShowAiTroubleshoot(true)}>
-                            Investigate with AI
+                            {isAlertPreAnalyzed(selectedAlert) ? 'View AI investigation' : 'Investigate with AI'}
                           </Button>
                         </Flex>
                       </StackItem>
