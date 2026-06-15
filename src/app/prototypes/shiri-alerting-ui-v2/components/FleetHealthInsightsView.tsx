@@ -173,7 +173,7 @@ export const FleetHealthInsightsView: React.FC<FleetHealthInsightsViewProps> = (
                       }
                     }}
                   >
-                    Investigate with AI
+                    {rule.name.toLowerCase().includes('cpu') || rule.name.toLowerCase().includes('memory') || rule.name.toLowerCase().includes('nodenotready') ? 'View AI investigation' : 'Investigate with AI'}
                   </Button>
                 </span>
               </Flex>
